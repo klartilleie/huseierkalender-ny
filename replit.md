@@ -188,6 +188,7 @@ This is a comprehensive calendar and customer service management application for
 - January 3, 2026. Implemented standard calendar notification email system with "Huseierkalenderen" branding, sends automatic emails when calendar events are created, updated, or deleted
 - January 3, 2026. Added automatic copy of all emails to sender (kalender@klartilleie.no) with information about who received the email
 - January 3, 2026. Added admin toggle in System Settings to enable/disable email notifications to users
+- January 3, 2026. Added per-user email notification setting - admin can enable/disable emails for individual users in user edit dialog
 
 ## User Preferences
 

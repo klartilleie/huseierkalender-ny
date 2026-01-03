@@ -20,6 +20,7 @@ export const users = pgTable("users", {
   lastLoginAt: timestamp("last_login_at"),
   phoneNumber: varchar("phone_number", { length: 20 }), // For SMS notifications
   accountNumber: varchar("account_number", { length: 30 }), // Bank account number
+  emailNotificationsEnabled: boolean("email_notifications_enabled").default(true), // E-postvarsler aktivert for denne brukeren
 });
 
 export const events = pgTable("events", {

@@ -181,10 +181,16 @@ export async function sendCalendarNotification(
  */
 export async function sendStandardCalendarUpdateEmail(targetUser: User): Promise<boolean> {
   try {
-    // Sjekk om e-postvarsler er aktivert
+    // Sjekk om e-postvarsler er aktivert globalt
     const emailEnabled = await isEmailNotificationsEnabled();
     if (!emailEnabled) {
       console.log('E-postvarsler er deaktivert i systeminnstillinger');
+      return false;
+    }
+
+    // Sjekk om brukeren har e-postvarsler aktivert
+    if (targetUser.emailNotificationsEnabled === false) {
+      console.log(`E-postvarsler er deaktivert for bruker ${targetUser.id} (${targetUser.email})`);
       return false;
     }
 

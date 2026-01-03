@@ -2131,6 +2131,32 @@ export default function AdminPage() {
                   />
                 </div>
 
+                <div className="grid grid-cols-4 items-center gap-4">
+                  <div className="text-right">
+                    <Label>E-postvarsler</Label>
+                  </div>
+                  <div className="col-span-3">
+                    <div className="flex items-center space-x-2">
+                      <Checkbox
+                        id="edit-emailNotifications"
+                        checked={selectedUser.emailNotificationsEnabled !== false}
+                        onCheckedChange={(checked) =>
+                          setSelectedUser({
+                            ...selectedUser,
+                            emailNotificationsEnabled: checked === true,
+                          })
+                        }
+                      />
+                      <Label htmlFor="edit-emailNotifications">
+                        Send e-postvarsler til denne brukeren
+                      </Label>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Deaktiver for å stoppe e-postvarsler ved kalenderendringer.
+                    </p>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-4 items-start gap-4">
                   <Label htmlFor="edit-adminInfo" className="text-right pt-2">
                     Admin-info
