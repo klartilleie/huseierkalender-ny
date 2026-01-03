@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
+    <title>BOOKING KALENDER | Smart Hjem AS</title>
+    
+    <!-- Cache Control Meta Tags -->
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    
+    <!-- PWA Meta Tags -->
+    <meta name="description" content="Komplett kalender- og kundeservicesystem for Smart Hjem AS">
+    <meta name="theme-color" content="#000000">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Smart Hjem">
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="/manifest.json">
+    
+    <!-- App Icons -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/icon-192x192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="/icon-512x512.png">
+    <link rel="apple-touch-icon" href="/icon-192x192.png">
+  </head>
+  <body>
+    <div id="root">
+      <!-- Immediate fallback content -->
+      <div id="emergency-content" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; z-index: 9999; background: #f8fafc; display: flex; align-items: center; justify-content: center; font-family: system-ui;">
+        <div style="background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); max-width: 400px; width: 100%; text-align: center;">
+          <h1 style="color: #1e40af; font-size: 1.5rem; margin-bottom: 1rem;">Smart Hjem Kalender</h1>
+          <p style="color: #64748b; margin-bottom: 2rem;">Laster applikasjon...</p>
+          <button onclick="window.location.reload()" style="width: 100%; background: #3b82f6; color: white; padding: 0.75rem; border: none; border-radius: 6px; font-size: 1rem; cursor: pointer; margin-bottom: 1rem;">
+            Last på nytt
+          </button>
+          <button onclick="window.location.href='/auth'" style="width: 100%; background: #10b981; color: white; padding: 0.75rem; border: none; border-radius: 6px; font-size: 1rem; cursor: pointer;">
+            Gå til innlogging
+          </button>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+    
+    <script>
+      // Force immediate redirect to auth page after 2 seconds if page is blank
+      console.log('Page loaded, setting up ultimate fallback');
+      
+      setTimeout(() => {
+        const body = document.body;
+        const hasContent = body.children.length > 2 && body.textContent.trim().length > 100;
+        
+        if (!hasContent) {
+          console.log('Page appears blank, forcing redirect to auth');
+          window.location.href = '/auth';
+        }
+      }, 2000);
+      
+      // Service Worker registration
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('SW registered:', reg))
+            .catch(err => console.log('SW registration failed:', err));
+        });
+      }
+    </script>
+  </body>
+</html>

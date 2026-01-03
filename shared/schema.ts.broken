@@ -1,0 +1,538 @@
+import { pgTable, text, serial, integer, boolean, timestamp, jsonb, date, varchar } from "drizzle-orm/pg-core";
+import { relations } from "drizzle-orm";
+import { createInsertSchema } from "drizzle-zod";
+import { z } from "zod";
+
+export const users = pgTable("users", {
+  id: serial("id").primaryKey(),
+  username: text("username").notNull().unique(), // Vil nå være brukerens e-postadresse
+  password: text("password").notNull(),
+  name: text("name").notNull(),
+  email: text("email").notNull(), // Beholdes for kompatibilitet, men vil være lik username
+  isAdmin: boolean("is_admin").default(false),
+  isBlocked: boolean("is_blocked").default(false),
+  blockReason: text("block_reason"),
+  blockedAt: timestamp("blocked_at"),
+  adminInfo: text("admin_info"), // Informasjon fra admin til bruker
+  adminInfoUpdatedAt: timestamp("admin_info_updated_at"),
+});
+
+export const events = pgTable("events", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  title: text("title").notNull(),
+  description: text("description"),
+  startTime: timestamp("start_time").notNull(),
+  endTime: timestamp("end_time"),
+  color: text("color").default("#ef4444"), // Default red color
+  allDay: boolean("all_day").default(false),
+  routes: text("routes").array(), // Array of route markers
+  source: jsonb("source"), // For iCal hendelser, inneholder metadata om kilden
+  isCollaborative: boolean("is_collaborative").default(false),
+  collaborationCode: text("collaboration_code").unique(),
+});
+
+export const eventRelations = relations(events, ({ one }) => ({
+  user: one(users, {
+    fields: [events.userId],
+    references: [users.id],
+  }),
+}));
+
+export const markedDays = pgTable("marked_days", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  date: timestamp("date").notNull(),
+  markerType: text("marker_type").notNull(), // Type of marker (e.g., "busy", "vacation", "holiday")
+  color: text("color").default("#8b5cf6"), // Marker color
+  notes: text("notes"),
+});
+
+export const markedDayRelations = relations(markedDays, ({ one }) => ({
+  user: one(users, {
+    fields: [markedDays.userId],
+    references: [users.id],
+  }),
+}));
+
+export const icalFeeds = pgTable("ical_feeds", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  name: text("name").notNull(),
+  url: text("url").notNull(),
+  color: text("color").default("#8b5cf6"), // Default purple color
+  enabled: boolean("enabled").default(true),
+  lastSynced: timestamp("last_synced"),
+});
+
+export const icalFeedRelations = relations(icalFeeds, ({ one }) => ({
+  user: one(users, {
+    fields: [icalFeeds.userId],
+    references: [users.id],
+  }),
+}));
+
+export const icalEventNotes = pgTable("ical_event_notes", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  eventExternalId: text("event_external_id").notNull(), // Store the original iCal event ID
+  notes: text("notes").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const icalEventNotesRelations = relations(icalEventNotes, ({ one }) => ({
+  user: one(users, {
+    fields: [icalEventNotes.userId],
+    references: [users.id],
+  }),
+}));
+
+// System settings for design customization
+export const systemSettings = pgTable("system_settings", {
+  id: serial("id").primaryKey(),
+  key: text("key").notNull().unique(), // Setting key (e.g., "frontPage.backgroundColor")
+  value: text("value").notNull(),      // Setting value (e.g., "#000000")
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Calendar data backups
+// Password reset tokens
+export const passwordResetTokens = pgTable("password_reset_tokens", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  token: text("token").notNull().unique(),
+  expiresAt: timestamp("expires_at").notNull(),
+  createdAt: timestamp("created_at").defaultNow(),
+  usedAt: timestamp("used_at"),
+});
+
+export const passwordResetTokenRelations = relations(passwordResetTokens, ({ one }) => ({
+  user: one(users, {
+    fields: [passwordResetTokens.userId],
+    references: [users.id],
+  }),
+}));
+
+export const backups = pgTable("backups", {
+  id: serial("id").primaryKey(),
+  filename: text("filename").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  isAutomatic: boolean("is_automatic").default(true).notNull(),
+  size: integer("size").notNull(),
+  summary: jsonb("summary"), // Contains counts of backed up items
+});
+
+// Samarbeidsdeltagere
+export const eventCollaborators = pgTable("event_collaborators", {
+  id: serial("id").primaryKey(),
+  eventId: integer("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
+  userId: integer("user_id").notNull().references(() => users.id),
+  role: text("role").default("guest").notNull(), // owner, editor, guest
+  joinedAt: timestamp("joined_at").defaultNow(),
+});
+
+// Forslag til endringer i samarbeidsarrangementer
+export const eventSuggestions = pgTable("event_suggestions", {
+  id: serial("id").primaryKey(),
+  eventId: integer("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
+  suggestedBy: integer("suggested_by").notNull().references(() => users.id),
+  type: text("type").notNull(), // title, description, time, location, etc.
+  originalValue: text("original_value"),
+  suggestedValue: text("suggested_value").notNull(),
+  status: text("status").default("pending").notNull(), // pending, approved, rejected
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  resolvedBy: integer("resolved_by").references(() => users.id),
+  resolvedAt: timestamp("resolved_at"),
+  message: text("message"), // Begrunnelse for forslaget
+});
+
+// Gamification - Achievements (prestasjoner)
+export const achievements = pgTable("achievements", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  icon: text("icon").notNull(), // SVG or icon class name
+  pointsValue: integer("points_value").notNull().default(10),
+  requirement: text("requirement").notNull(), // Technical criteria like "create_events:5"
+  category: text("category").notNull(), // grouping like "events", "ical", "collaboration" etc.
+  difficulty: text("difficulty").notNull().default("medium"), // easy, medium, hard
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  isActive: boolean("is_active").default(true)
+});
+
+// Gamification - User Achievements (bruker prestasjoner)
+export const userAchievements = pgTable("user_achievements", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  achievementId: integer("achievement_id").notNull().references(() => achievements.id),
+  earnedAt: timestamp("earned_at").defaultNow().notNull(),
+  progress: integer("progress").default(0), // For tracking partial progress
+  completed: boolean("completed").default(false),
+  notified: boolean("notified").default(false) // To track if user was notified
+});
+
+// Gamification - Badges (merker)
+export const badges = pgTable("badges", {
+  id: serial("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description").notNull(),
+  icon: text("icon").notNull(), // SVG or icon class name
+  level: integer("level").default(1), // For tiered badges (e.g., bronze, silver, gold)
+  category: text("category").notNull(), // "event_master", "collaborator", etc.
+  requirements: jsonb("requirements").notNull(), // JSON with criteria like {"achievements": [1, 2, 3]}
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  isActive: boolean("is_active").default(true)
+});
+
+// Gamification - User Badges (bruker merker)
+export const userBadges = pgTable("user_badges", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  badgeId: integer("badge_id").notNull().references(() => badges.id),
+  awardedAt: timestamp("awarded_at").defaultNow().notNull(),
+  displayOrder: integer("display_order").default(0) // For user preference in display order
+});
+
+// Gamification - User Points (bruker poeng)
+export const userPoints = pgTable("user_points", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  points: integer("points").notNull().default(0), 
+  level: integer("level").notNull().default(1),
+  updatedAt: timestamp("updated_at").defaultNow().notNull()
+});
+
+// Gamification - Point Transactions (poeng transaksjoner)
+export const pointTransactions = pgTable("point_transactions", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  amount: integer("amount").notNull(), // Can be positive or negative
+  reason: text("reason").notNull(), // e.g., "achievement_earned", "event_created"
+  source: text("source").notNull(), // e.g., "achievement:1", "daily_login" 
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  metadata: jsonb("metadata") // Optional additional data about the transaction
+});
+
+// Gamification - Streaks (for consistent usage)
+export const userStreaks = pgTable("user_streaks", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  currentStreak: integer("current_streak").notNull().default(0),
+  longestStreak: integer("longest_streak").notNull().default(0),
+  lastActiveDate: date("last_active_date").notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull()
+});
+
+// Sakshåndtering - Cases (saker)
+// Case management tables are defined at line ~536
+
+export const userRelations = relations(users, ({ many }) => ({
+  events: many(events),
+  icalFeeds: many(icalFeeds),
+  markedDays: many(markedDays),
+  icalEventNotes: many(icalEventNotes),
+  cases: many(cases),
+  caseMessages: many(caseMessages),
+}));
+
+// Insert schemas
+export const insertUserSchema = createInsertSchema(users)
+  .pick({
+    username: true,
+    password: true,
+    name: true,
+    email: true,
+    isAdmin: true,
+    adminInfo: true,
+  })
+  .extend({
+    username: z.string().email("E-postadresse må være gyldig").min(1, "E-post er påkrevd"),
+    password: z.string().min(6, "Passord må være minst 6 tegn"),
+    name: z.string().min(1, "Navn er påkrevd"),
+    adminInfo: z.string().optional(),
+  });
+
+export const insertEventSchema = createInsertSchema(events).pick({
+  title: true,
+  description: true,
+  startTime: true,
+  endTime: true,
+  color: true,
+  allDay: true,
+  routes: true,
+  source: true,
+  isCollaborative: true,
+  collaborationCode: true,
+});
+
+export const insertIcalFeedSchema = createInsertSchema(icalFeeds).pick({
+  name: true,
+  url: true,
+  color: true,
+  enabled: true,
+  userId: true,
+  lastSynced: true,
+});
+
+export const insertMarkedDaySchema = createInsertSchema(markedDays).pick({
+  date: true,
+  markerType: true,
+  color: true,
+  notes: true,
+});
+
+export const insertIcalEventNoteSchema = createInsertSchema(icalEventNotes).pick({
+  eventExternalId: true,
+  notes: true,
+});
+
+// Types
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type User = typeof users.$inferSelect;
+
+export type InsertEvent = z.infer<typeof insertEventSchema>;
+export type Event = typeof events.$inferSelect;
+
+export type InsertIcalFeed = z.infer<typeof insertIcalFeedSchema>;
+export type IcalFeed = typeof icalFeeds.$inferSelect;
+
+export type InsertMarkedDay = z.infer<typeof insertMarkedDaySchema>;
+export type MarkedDay = typeof markedDays.$inferSelect;
+
+export type InsertIcalEventNote = z.infer<typeof insertIcalEventNoteSchema>;
+export type IcalEventNote = typeof icalEventNotes.$inferSelect;
+
+// System settings insert schema
+export const insertSystemSettingSchema = createInsertSchema(systemSettings).pick({
+  key: true,
+  value: true,
+});
+
+export const insertBackupSchema = createInsertSchema(backups).pick({
+  filename: true,
+  isAutomatic: true,
+  size: true,
+  summary: true,
+});
+
+export const insertPasswordResetTokenSchema = createInsertSchema(passwordResetTokens).pick({
+  userId: true,
+  token: true,
+  expiresAt: true,
+});
+
+export type InsertSystemSetting = z.infer<typeof insertSystemSettingSchema>;
+export type SystemSetting = typeof systemSettings.$inferSelect;
+
+export type InsertBackup = z.infer<typeof insertBackupSchema>;
+export type Backup = typeof backups.$inferSelect;
+
+export type InsertPasswordResetToken = z.infer<typeof insertPasswordResetTokenSchema>;
+export type PasswordResetToken = typeof passwordResetTokens.$inferSelect;
+
+// Schema for sakshåndteringssystemet
+export const insertCaseSchema = createInsertSchema(cases).pick({
+  title: true,
+  userId: true,
+  adminId: true,
+  category: true,
+  priority: true,
+  status: true,
+}).extend({
+  title: z.string().min(1, "Tittel er påkrevd"),
+  category: z.string().default("general"),
+  priority: z.string().default("normal"),
+});
+
+export const insertCaseMessageSchema = createInsertSchema(caseMessages).pick({
+  caseId: true,
+  senderId: true,
+  message: true,
+  isAdminMessage: true,
+  attachmentUrl: true,
+}).extend({
+  message: z.string().min(1, "Melding kan ikke være tom"),
+});
+
+export const insertCaseAttachmentSchema = createInsertSchema(caseAttachments).pick({
+  caseId: true,
+  messageId: true,
+  fileName: true,
+  fileType: true,
+  fileSize: true,
+  fileUrl: true,
+  uploadedBy: true,
+}).extend({
+  fileName: z.string().min(1, "Filnavn er påkrevd"),
+  fileUrl: z.string().min(1, "Fil-URL er påkrevd"),
+});
+
+// Typer for sakshåndteringssystemet
+export type InsertCase = z.infer<typeof insertCaseSchema>;
+export type Case = typeof cases.$inferSelect;
+
+export type InsertCaseMessage = z.infer<typeof insertCaseMessageSchema>;
+export type CaseMessage = typeof caseMessages.$inferSelect;
+
+export type InsertCaseAttachment = z.infer<typeof insertCaseAttachmentSchema>;
+export type CaseAttachment = typeof caseAttachments.$inferSelect;
+
+// Extended schemas for form validation
+export const loginSchema = z.object({
+  username: z.string().email("E-postadresse må være gyldig").min(1, "E-post er påkrevd"),
+  password: z.string().min(1, "Passord er påkrevd"),
+});
+
+// Case form schema med validering
+export const caseFormSchema = insertCaseSchema.extend({
+  title: z.string().min(3, "Tittel må være minst 3 tegn"),
+  category: z.enum(["general", "technical", "billing", "support", "other"], {
+    errorMap: () => ({ message: "Velg en gyldig kategori" }),
+  }),
+  priority: z.enum(["low", "normal", "high", "urgent"], {
+    errorMap: () => ({ message: "Velg en gyldig prioritet" }),
+  }),
+  message: z.string().min(1, "Første melding kan ikke være tom"),
+});
+
+// Case message form schema
+export const caseMessageFormSchema = insertCaseMessageSchema.extend({
+  message: z.string().min(1, "Melding kan ikke være tom"),
+  attachmentUrl: z.string().optional(),
+  targetUserId: z.number().optional(), // Allow admin to select which user to send message to
+});
+
+export type LoginCredentials = z.infer<typeof loginSchema>;
+
+// Event schema with client-side validation
+export const eventFormSchema = insertEventSchema.extend({
+  title: z.string().min(1, "Title is required"),
+  startTime: z.string().or(z.date()).pipe(
+    z.coerce.date().refine(val => !isNaN(val.getTime()), "Invalid date")
+  ),
+  endTime: z.string().or(z.date()).pipe(
+    z.coerce.date().refine(val => !isNaN(val.getTime()), "Invalid date")
+  ).optional().nullable(),
+  allDay: z.boolean().default(false),
+  color: z.string().default("#ef4444"),
+  description: z.string().optional(),
+  routes: z.array(z.string()).optional().default([]),
+});
+
+// iCal feed schema with client-side validation
+export const icalFeedFormSchema = insertIcalFeedSchema.extend({
+  name: z.string().min(1, "Name is required"),
+  url: z.string().url("Please enter a valid URL").min(1, "URL is required"),
+  color: z.string().default("#8b5cf6"),
+  enabled: z.boolean().default(true),
+});
+
+// Marked day schema with client-side validation
+export const markedDayFormSchema = insertMarkedDaySchema.extend({
+  date: z.string().or(z.date()).pipe(
+    z.coerce.date().refine(val => !isNaN(val.getTime()), "Invalid date")
+  ),
+  markerType: z.enum(['busy', 'vacation', 'holiday', 'other']),
+  color: z.string().default("#8b5cf6"),
+  notes: z.string().optional(),
+});
+
+// iCal event note schema with validation
+export const icalEventNoteFormSchema = insertIcalEventNoteSchema.extend({
+  eventExternalId: z.string().min(1, "Event ID is required"),
+  notes: z.string().min(1, "Notes are required"),
+});
+
+// System settings schema with client-side validation
+export const systemSettingFormSchema = insertSystemSettingSchema.extend({
+  key: z.string().min(1, "Setting key is required"),
+  value: z.string().min(1, "Setting value is required"),
+});
+
+// Customer Service Case Management
+
+export const cases = pgTable("cases", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  adminId: integer("admin_id").references(() => users.id),
+  caseNumber: varchar("case_number", { length: 20 }).notNull().unique(),
+  title: text("title").notNull(),
+  category: varchar("category", { length: 50 }).notNull(),
+  priority: varchar("priority", { length: 20 }).notNull(),
+  status: varchar("status", { length: 30 }).notNull().default("open"),
+  isClosed: boolean("is_closed").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  updatedAt: timestamp("updated_at").notNull().defaultNow(),
+  closedAt: timestamp("closed_at"),
+  closedById: integer("closed_by_id").references(() => users.id),
+});
+
+export const caseMessages = pgTable("case_messages", {
+  id: serial("id").primaryKey(),
+  caseId: integer("case_id").notNull().references(() => cases.id, { onDelete: "cascade" }),
+  senderId: integer("sender_id").notNull().references(() => users.id),
+  targetUserId: integer("target_user_id").references(() => users.id), // Which user the message is directed to (for admin messages)
+  message: text("message").notNull(),
+  isAdminMessage: boolean("is_admin_message").notNull(),
+  isRead: boolean("is_read").notNull().default(false),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const caseAttachments = pgTable("case_attachments", {
+  id: serial("id").primaryKey(),
+  caseId: integer("case_id").notNull().references(() => cases.id, { onDelete: "cascade" }),
+  uploaderId: integer("uploader_id").notNull().references(() => users.id),
+  filename: text("filename").notNull(),
+  filePath: text("file_path").notNull(),
+  fileSize: integer("file_size").notNull(),
+  mimeType: text("mime_type").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+// Relations for case management
+
+export const caseRelations = relations(cases, ({ one, many }) => ({
+  user: one(users, {
+    fields: [cases.userId],
+    references: [users.id],
+  }),
+  admin: one(users, {
+    fields: [cases.adminId],
+    references: [users.id],
+  }),
+  closedBy: one(users, {
+    fields: [cases.closedById],
+    references: [users.id],
+  }),
+  messages: many(caseMessages),
+  attachments: many(caseAttachments),
+}));
+
+export const caseMessageRelations = relations(caseMessages, ({ one }) => ({
+  case: one(cases, {
+    fields: [caseMessages.caseId],
+    references: [cases.id],
+  }),
+  sender: one(users, {
+    fields: [caseMessages.senderId],
+    references: [users.id],
+  }),
+}));
+
+export const caseAttachmentRelations = relations(caseAttachments, ({ one }) => ({
+  case: one(cases, {
+    fields: [caseAttachments.caseId],
+    references: [cases.id],
+  }),
+  uploader: one(users, {
+    fields: [caseAttachments.uploaderId],
+    references: [users.id],
+  }),
+}));
+
+// Note: Earlier definitions of these schemas are already present in the file
+// We are not redefining them to avoid duplicates

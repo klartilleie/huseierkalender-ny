@@ -1,0 +1,147 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Fix tab navigation contrast issues */
+@layer components {
+  .tabs-list-override {
+    background-color: rgb(248 250 252) !important; /* slate-50 */
+    border: 1px solid rgb(226 232 240) !important; /* slate-200 */
+  }
+  
+  .tabs-trigger-override {
+    color: rgb(71 85 105) !important; /* slate-600 */
+    font-weight: 500 !important;
+  }
+  
+  .tabs-trigger-override[data-state="active"] {
+    background-color: white !important;
+    color: rgb(15 23 42) !important; /* slate-900 */
+    box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1) !important;
+  }
+}
+
+@layer utilities {
+  /* Enhanced touch target utility classes for mobile */
+  .touch-manipulation {
+    touch-action: manipulation; /* Disable browser handling of pinch-zoom etc. */
+  }
+  
+  .touch-target-large {
+    position: relative;
+  }
+  
+  .touch-target-large::after {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: -8px;
+    right: -8px;
+    bottom: -8px;
+    z-index: -1;
+  }
+  
+  /* Swipe animations */
+  @keyframes swipe-left {
+    from { transform: translateX(0); opacity: 1; }
+    to { transform: translateX(-10px); opacity: 0; }
+  }
+  
+  @keyframes swipe-right {
+    from { transform: translateX(0); opacity: 1; }
+    to { transform: translateX(10px); opacity: 0; }
+  }
+  
+  /* Today's date animation - pulsing ring */
+  @keyframes pulse-ring {
+    0% {
+      transform: scale(0.95);
+      box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.7);
+    }
+    
+    70% {
+      transform: scale(1);
+      box-shadow: 0 0 0 10px rgba(59, 130, 246, 0);
+    }
+    
+    100% {
+      transform: scale(0.95);
+      box-shadow: 0 0 0 0 rgba(59, 130, 246, 0);
+    }
+  }
+  
+  .today-pulse {
+    animation: pulse-ring 2s infinite;
+  }
+  
+  .swipe-out-left {
+    animation: swipe-left 0.2s ease-out forwards;
+  }
+  
+  .swipe-out-right {
+    animation: swipe-right 0.2s ease-out forwards;
+  }
+  
+  .swipe-in-left {
+    animation: swipe-right 0.2s ease-out reverse forwards;
+  }
+  
+  .swipe-in-right {
+    animation: swipe-left 0.2s ease-out reverse forwards;
+  }
+}
+
+:root {
+      --background: 0 0% 100%;
+--foreground: 20 14.3% 4.1%;
+--muted: 60 4.8% 95.9%;
+--muted-foreground: 25 5.3% 44.7%;
+--popover: 0 0% 100%;
+--popover-foreground: 20 14.3% 4.1%;
+--card: 0 0% 100%;
+--card-foreground: 20 14.3% 4.1%;
+--border: 20 5.9% 90%;
+--input: 20 5.9% 90%;
+--primary: 207 90% 54%;
+--primary-foreground: 211 100% 99%;
+--secondary: 60 4.8% 95.9%;
+--secondary-foreground: 24 9.8% 10%;
+--accent: 60 4.8% 95.9%;
+--accent-foreground: 24 9.8% 10%;
+--destructive: 0 84.2% 60.2%;
+--destructive-foreground: 60 9.1% 97.8%;
+--ring: 20 14.3% 4.1%;
+--radius: 0.5rem;
+  }
+  .dark {
+      --background: 240 10% 3.9%;
+--foreground: 0 0% 98%;
+--muted: 240 3.7% 15.9%;
+--muted-foreground: 240 5% 64.9%;
+--popover: 240 10% 3.9%;
+--popover-foreground: 0 0% 98%;
+--card: 240 10% 3.9%;
+--card-foreground: 0 0% 98%;
+--border: 240 3.7% 15.9%;
+--input: 240 3.7% 15.9%;
+--primary: 207 90% 54%;
+--primary-foreground: 211 100% 99%;
+--secondary: 240 3.7% 15.9%;
+--secondary-foreground: 0 0% 98%;
+--accent: 240 3.7% 15.9%;
+--accent-foreground: 0 0% 98%;
+--destructive: 0 62.8% 30.6%;
+--destructive-foreground: 0 0% 98%;
+--ring: 240 4.9% 83.9%;
+--radius: 0.5rem;
+  }
+
+@layer base {
+  * {
+    @apply border-[hsl(var(--border))];
+  }
+
+  body {
+    @apply font-sans antialiased bg-background text-foreground;
+  }
+}

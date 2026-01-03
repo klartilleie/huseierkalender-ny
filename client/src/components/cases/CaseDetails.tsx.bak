@@ -1,0 +1,712 @@
+import { useState, useRef } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
+import { useTranslation } from "@/hooks/use-language";
+import { useAuth } from "@/hooks/use-auth";
+import { format } from "date-fns";
+import { 
+  ArrowLeft, 
+  Clock, 
+  Tag, 
+  Send, 
+  UserCheck, 
+  AlertCircle,
+  CheckCircle,
+  RefreshCw,
+  X
+} from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+
+type CaseDetails = {
+  id: number;
+  userId: number;
+  adminId: number | null;
+  caseNumber: string;
+  title: string;
+  category: string;
+  priority: string;
+  status: string;
+  isClosed: boolean;
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+  closedById: number | null;
+  messages: CaseMessage[];
+  attachments: any[];
+};
+
+type CaseMessage = {
+  id: number;
+  caseId: number;
+  senderId: number;
+  message: string;
+  isAdminMessage: boolean;
+  isRead: boolean;
+  createdAt: string;
+};
+
+type CaseDetailsProps = {
+  caseId: number;
+  onClose: () => void;
+};
+
+export default function CaseDetails({ caseId, onClose }: CaseDetailsProps) {
+  const { user } = useAuth();
+  const { t } = useTranslation();
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [newMessage, setNewMessage] = useState("");
+  const [targetUserId, setTargetUserId] = useState<number | null>(null);
+  const [isCloseCaseDialogOpen, setIsCloseCaseDialogOpen] = useState(false);
+  const [isConfirmReopenDialogOpen, setIsConfirmReopenDialogOpen] = useState(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Query to get case details
+  const { data: caseDetails, isLoading } = useQuery<CaseDetails>({
+    queryKey: ['/api/cases', caseId],
+    enabled: !!caseId,
+    onSuccess: (data) => {
+      // Mark unread messages as read
+      if (data?.messages) {
+        data.messages
+          .filter(msg => !msg.isRead && 
+            ((user?.isAdmin && !msg.isAdminMessage) || (!user?.isAdmin && msg.isAdminMessage)))
+          .forEach(msg => {
+            markMessageAsReadMutation.mutate(msg.id);
+          });
+      }
+      
+      // Scroll to bottom of messages
+      setTimeout(() => {
+        if (messagesEndRef.current) {
+          messagesEndRef.current.scrollIntoView({ behavior: 'smooth' });
+        }
+      }, 100);
+    }
+  });
+
+  // Mutation to add a message
+  const addMessageMutation = useMutation({
+    mutationFn: async (data: string | { message: string, targetUserId: number }) => {
+      // If data is a string, it's just the message
+      // If it's an object, it contains message and targetUserId
+      const messageData = typeof data === 'string' 
+        ? { message: data } 
+        : { message: data.message, targetUserId: data.targetUserId };
+        
+      const response = await fetch(`/api/cases/${caseId}/messages`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(messageData),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to add message');
+      }
+
+      return await response.json();
+    },
+    onSuccess: () => {
+      setNewMessage("");
+      queryClient.invalidateQueries({ queryKey: ['/api/cases', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/cases/unread-count'] });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: t("caseManagement.errorTitle"),
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Mutation to mark a message as read
+  const markMessageAsReadMutation = useMutation({
+    mutationFn: async (messageId: number) => {
+      const response = await fetch(`/api/cases/messages/${messageId}/read`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to mark message as read');
+      }
+
+      return await response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/cases/unread-count'] });
+    },
+  });
+
+  // Mutation to close a case
+  const closeCaseMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/cases/${caseId}/close`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to close case');
+      }
+
+      return await response.json();
+    },
+    onSuccess: () => {
+      setIsCloseCaseDialogOpen(false);
+      queryClient.invalidateQueries({ queryKey: ['/api/cases', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/cases'] });
+      toast({
+        title: t("caseManagement.caseClosed"),
+        description: t("caseManagement.caseClosedDescription"),
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: t("caseManagement.errorTitle"),
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Mutation to reopen a case
+  const reopenCaseMutation = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(`/api/cases/${caseId}/reopen`, {
+        method: 'POST',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to reopen case');
+      }
+
+      return await response.json();
+    },
+    onSuccess: () => {
+      setIsConfirmReopenDialogOpen(false);
+      queryClient.invalidateQueries({ queryKey: ['/api/cases', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/cases'] });
+      toast({
+        title: t("caseManagement.caseReopened"),
+        description: t("caseManagement.caseReopenedDescription"),
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: t("caseManagement.errorTitle"),
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Hent alle administratorer for å kunne velge hvem som skal tildeles saken
+  const { data: adminUsers } = useQuery({
+    queryKey: ['/api/admin/users'],
+    select: (data) => data.filter((user: any) => user.isAdmin),
+  });
+
+  // State for å håndtere dialog for valg av administrator
+  const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
+  const [selectedAdminId, setSelectedAdminId] = useState<number | null>(null);
+
+  // Mutation to assign case to admin (admin only)
+  const assignCaseToAdminMutation = useMutation({
+    mutationFn: async (adminId: number) => {
+      const response = await fetch(`/api/admin/cases/${caseId}/assign`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ adminId }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to assign case');
+      }
+
+      return await response.json();
+    },
+    onSuccess: () => {
+      setIsAssignDialogOpen(false);
+      queryClient.invalidateQueries({ queryKey: ['/api/cases', caseId] });
+      queryClient.invalidateQueries({ queryKey: ['/api/cases'] });
+      toast({
+        title: t("caseManagement.caseAssigned"),
+        description: t("caseManagement.caseAssignedDescription"),
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: t("caseManagement.errorTitle"),
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleSendMessage = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newMessage.trim()) {
+      // Include targetUserId for admin messages if a specific user is selected
+      if (user?.isAdmin && targetUserId) {
+        addMessageMutation.mutate({
+          message: newMessage.trim(),
+          targetUserId: targetUserId
+        });
+      } else {
+        addMessageMutation.mutate(newMessage.trim());
+      }
+    }
+  };
+
+  // Render priority badge
+  const renderPriorityBadge = (priority: string) => {
+    switch (priority.toLowerCase()) {
+      case 'high':
+        return <Badge variant="destructive">{t("caseManagement.priorityHigh")}</Badge>;
+      case 'medium':
+        return <Badge variant="default">{t("caseManagement.priorityMedium")}</Badge>;
+      case 'low':
+        return <Badge variant="outline">{t("caseManagement.priorityLow")}</Badge>;
+      default:
+        return <Badge variant="outline">{priority}</Badge>;
+    }
+  };
+
+  // Render status badge
+  const renderStatusBadge = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'open':
+        return <Badge variant="secondary">{t("caseManagement.statusOpen")}</Badge>;
+      case 'in_progress':
+        return <Badge variant="default">{t("caseManagement.statusInProgress")}</Badge>;
+      case 'resolved':
+        return <Badge variant="success">{t("caseManagement.statusResolved")}</Badge>;
+      default:
+        return <Badge variant="outline">{status}</Badge>;
+    }
+  };
+
+  // Render message
+  const renderMessage = (message: CaseMessage) => {
+    const isCurrentUserMessage = message.isAdminMessage === user?.isAdmin;
+    
+    // Sikker håndtering av dato
+    let formattedDate = "";
+    try {
+      const messageDate = new Date(message.createdAt);
+      formattedDate = format(messageDate, 'HH:mm dd.MM.yyyy');
+    } catch (error) {
+      formattedDate = "Ukjent dato";
+      console.error("Feil ved formatering av dato:", error);
+    }
+    
+    return (
+      <div 
+        key={message.id} 
+        className={`mb-4 ${isCurrentUserMessage ? 'ml-auto' : 'mr-auto'} max-w-[80%]`}
+      >
+        <div className={`flex items-start gap-2 ${isCurrentUserMessage ? 'flex-row-reverse' : 'flex-row'}`}>
+          <Avatar className={`h-8 w-8 ${isCurrentUserMessage ? 'bg-primary/20' : 'bg-muted'}`}>
+            <AvatarFallback>
+              {message.isAdminMessage ? 'A' : 'U'}
+            </AvatarFallback>
+          </Avatar>
+          
+          <div>
+            <div 
+              className={`p-3 rounded-lg ${
+                isCurrentUserMessage 
+                  ? 'bg-primary text-primary-foreground rounded-tr-none' 
+                  : 'bg-muted rounded-tl-none'
+              }`}
+            >
+              <p className="text-sm">{message.message}</p>
+            </div>
+            <div 
+              className={`text-xs text-muted-foreground mt-1 ${
+                isCurrentUserMessage ? 'text-right' : 'text-left'
+              }`}
+            >
+              {formattedDate}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  if (isLoading) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="text-center">
+          <div className="spinner mx-auto mb-4" />
+          <p>{t("common.loading")}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!caseDetails) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="text-center">
+          <AlertCircle className="h-12 w-12 text-muted-foreground mb-4 mx-auto" />
+          <h2 className="text-xl font-semibold mb-2">{t("caseManagement.caseNotFound")}</h2>
+          <p className="text-muted-foreground">{t("caseManagement.caseNotFoundDescription")}</p>
+          <Button variant="outline" className="mt-4" onClick={onClose}>
+            <ArrowLeft className="h-4 w-4 mr-2" />
+            {t("common.back")}
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  const isCaseAssigned = !!caseDetails.adminId;
+  const isAdmin = user?.isAdmin === true;
+  const canAssign = isAdmin && !isCaseAssigned && !caseDetails.isClosed;
+  const showCloseButton = !caseDetails.isClosed;
+  const showReopenButton = caseDetails.isClosed;
+
+  return (
+    <>
+      {/* Dialog for assigning case to admin */}
+      <Dialog open={isAssignDialogOpen} onOpenChange={setIsAssignDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("caseManagement.assignCase")}</DialogTitle>
+            <DialogDescription>
+              {t("caseManagement.assignCaseDescription")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-6">
+            <label className="block text-sm font-medium mb-2">
+              {t("caseManagement.selectAdmin")}
+            </label>
+            <select
+              className="w-full p-2 border rounded-md"
+              value={selectedAdminId || ""}
+              onChange={(e) => setSelectedAdminId(e.target.value ? parseInt(e.target.value) : null)}
+            >
+              <option value="">{t("caseManagement.selectAdminPlaceholder")}</option>
+              <option value={user?.id}>{t("caseManagement.assignToMe")}</option>
+              {adminUsers?.filter(admin => admin.id !== user?.id).map((admin) => (
+                <option key={admin.id} value={admin.id}>
+                  {admin.name || admin.username}
+                </option>
+              ))}
+            </select>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsAssignDialogOpen(false)}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              type="submit"
+              disabled={!selectedAdminId || assignCaseToAdminMutation.isPending}
+              onClick={() => {
+                if (selectedAdminId) {
+                  assignCaseToAdminMutation.mutate(selectedAdminId);
+                }
+              }}
+            >
+              {assignCaseToAdminMutation.isPending ? t("common.loading") : t("caseManagement.assign")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog for closing case */}
+      <Dialog open={isCloseCaseDialogOpen} onOpenChange={setIsCloseCaseDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("caseManagement.closeCase")}</DialogTitle>
+            <DialogDescription>
+              {t("caseManagement.closeCaseConfirmation")}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsCloseCaseDialogOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button 
+              variant="default" 
+              onClick={() => closeCaseMutation.mutate()}
+              disabled={closeCaseMutation.isPending}
+            >
+              {closeCaseMutation.isPending ? t("common.loading") : t("caseManagement.closeCase")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Dialog for reopening case */}
+      <Dialog open={isConfirmReopenDialogOpen} onOpenChange={setIsConfirmReopenDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("caseManagement.reopenCase")}</DialogTitle>
+            <DialogDescription>
+              {t("caseManagement.reopenCaseConfirmation")}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setIsConfirmReopenDialogOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button 
+              variant="default" 
+              onClick={() => reopenCaseMutation.mutate()}
+              disabled={reopenCaseMutation.isPending}
+            >
+              {reopenCaseMutation.isPending ? t("common.loading") : t("caseManagement.reopenCase")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    
+      <div className="h-full flex flex-col border rounded-lg overflow-hidden">
+        <div className="p-4 border-b bg-muted/20">
+          <div className="flex items-center justify-between mb-2">
+            <Button variant="ghost" size="sm" onClick={onClose}>
+              <ArrowLeft className="h-4 w-4 mr-2" />
+              {t("common.back")}
+            </Button>
+            <div className="flex items-center gap-2">
+            {canAssign && (
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => setIsAssignDialogOpen(true)}
+                disabled={assignCaseToAdminMutation.isPending}
+              >
+                <UserCheck className="h-4 w-4 mr-2" />
+                {t("caseManagement.assignCase")}
+              </Button>
+            )}
+            {showCloseButton && (
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => setIsCloseCaseDialogOpen(true)}
+              >
+                <CheckCircle className="h-4 w-4 mr-2" />
+                {t("caseManagement.closeCase")}
+              </Button>
+            )}
+            {showReopenButton && (
+              <Button 
+                variant="outline" 
+                size="sm"
+                onClick={() => setIsConfirmReopenDialogOpen(true)}
+              >
+                <RefreshCw className="h-4 w-4 mr-2" />
+                {t("caseManagement.reopenCase")}
+              </Button>
+            )}
+          </div>
+        </div>
+        
+        <h2 className="text-xl font-bold">{caseDetails.title}</h2>
+        
+        <div className="flex flex-wrap gap-2 items-center mt-2">
+          <div className="flex items-center text-sm text-muted-foreground">
+            <Tag className="h-3.5 w-3.5 mr-1" />
+            {caseDetails.caseNumber}
+          </div>
+          <div className="flex items-center text-sm text-muted-foreground">
+            <Clock className="h-3.5 w-3.5 mr-1" />
+            {(() => {
+              try {
+                return format(new Date(caseDetails.createdAt), 'dd.MM.yyyy HH:mm');
+              } catch (error) {
+                console.error("Feil ved formatering av opprettelsesdato:", error);
+                return "Ukjent dato";
+              }
+            })()}
+          </div>
+          {renderPriorityBadge(caseDetails.priority)}
+          {renderStatusBadge(caseDetails.status)}
+          {caseDetails.isClosed && (
+            <Badge variant="destructive">{t("caseManagement.closed")}</Badge>
+          )}
+        </div>
+        
+        <div className="mt-2">
+          <div className="text-sm">
+            <span className="font-medium">{t("caseManagement.category")}: </span>
+            <span>{caseDetails.category}</span>
+          </div>
+          {isCaseAssigned && (
+            <div className="text-sm mt-1">
+              <span className="font-medium">{t("caseManagement.assignedToAdmin")}: </span>
+              <span className="flex items-center">
+                <UserCheck className="h-3.5 w-3.5 mr-1" />
+                {t("caseManagement.customerService")}
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+      
+      <div className="flex-1 overflow-hidden">
+        <ScrollArea className="h-full px-4 pt-4">
+          <div className="space-y-4">
+            {caseDetails.messages.length === 0 ? (
+              <div className="text-center py-12">
+                <AlertCircle className="h-10 w-10 mx-auto text-muted-foreground" />
+                <h3 className="mt-4 text-lg font-medium">{t("caseManagement.noMessages")}</h3>
+                <p className="mt-2 text-sm text-muted-foreground max-w-sm mx-auto">
+                  {t("caseManagement.noMessagesDescription")}
+                </p>
+              </div>
+            ) : (
+              <div>
+                {caseDetails.messages.map(message => renderMessage(message))}
+                <div ref={messagesEndRef} />
+              </div>
+            )}
+          </div>
+        </ScrollArea>
+      </div>
+      
+      {!caseDetails.isClosed && (
+        <div className="p-4 border-t bg-background">
+          <form onSubmit={handleSendMessage} className="space-y-2">
+            {/* User targeting dropdown for admins */}
+            {user?.isAdmin && caseDetails && (
+              <div className="mb-2">
+                <select
+                  className="w-full p-2 border rounded-md text-sm"
+                  value={targetUserId || ""}
+                  onChange={(e) => setTargetUserId(e.target.value ? parseInt(e.target.value) : null)}
+                >
+                  <option value="">{t("caseManagement.allUsers")}</option>
+                  {/* Case owner */}
+                  <option value={caseDetails.userId}>
+                    {t("caseManagement.caseOwner")}
+                  </option>
+                  {/* Admin assigned to case (if different from current user) */}
+                  {caseDetails.adminId && caseDetails.adminId !== user.id && (
+                    <option value={caseDetails.adminId}>
+                      {t("caseManagement.assignedAdmin")}
+                    </option>
+                  )}
+                </select>
+                <div className="text-xs text-muted-foreground mt-1">
+                  {targetUserId ? t("caseManagement.targetedMessage") : t("caseManagement.generalMessage")}
+                </div>
+              </div>
+            )}
+            
+            <div className="flex gap-2">
+              <Textarea
+                placeholder={t("caseManagement.typeMessage")}
+                value={newMessage}
+                onChange={(e) => setNewMessage(e.target.value)}
+                className="flex-1 min-h-[60px]"
+              />
+              <Button 
+                type="submit" 
+                disabled={!newMessage.trim() || addMessageMutation.isPending}
+                size="icon"
+                className="h-[60px] w-[60px]"
+              >
+                <Send className="h-5 w-5" />
+              </Button>
+            </div>
+          </form>
+        </div>
+      )}
+      
+      {/* Close Case Dialog */}
+      <Dialog open={isCloseCaseDialogOpen} onOpenChange={setIsCloseCaseDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("caseManagement.closeCaseTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("caseManagement.closeCaseDescription")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm">
+              {t("caseManagement.closeCaseConfirmation")}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsCloseCaseDialogOpen(false)}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="default"
+              onClick={() => closeCaseMutation.mutate()}
+              disabled={closeCaseMutation.isPending}
+            >
+              {closeCaseMutation.isPending ? t("common.processing") : t("caseManagement.confirmClose")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+      
+      {/* Reopen Case Dialog */}
+      <Dialog open={isConfirmReopenDialogOpen} onOpenChange={setIsConfirmReopenDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("caseManagement.reopenCaseTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("caseManagement.reopenCaseDescription")}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="py-4">
+            <p className="text-sm">
+              {t("caseManagement.reopenCaseConfirmation")}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsConfirmReopenDialogOpen(false)}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button
+              variant="default"
+              onClick={() => reopenCaseMutation.mutate()}
+              disabled={reopenCaseMutation.isPending}
+            >
+              {reopenCaseMutation.isPending ? t("common.processing") : t("caseManagement.confirmReopen")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
+  );
+}
