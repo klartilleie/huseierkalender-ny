@@ -1,9 +1,23 @@
 import nodemailer from 'nodemailer';
 import { User, Event, MarkedDay } from '@shared/schema';
+import { storage } from './storage';
 
-// E-post avsender konfigurering
-const FROM_EMAIL = 'kundeservice@smarthjem.as';
-const FROM_NAME = 'Smart Hjem Kalender';
+// E-post avsender konfigurering - bruker SMTP_USER fra miljøvariabel
+const FROM_EMAIL = process.env.SMTP_USER || 'kalender@klartilleie.no';
+const FROM_NAME = 'Huseierkalenderen';
+
+/**
+ * Sjekk om e-postvarsler er aktivert i systeminnstillinger
+ */
+async function isEmailNotificationsEnabled(): Promise<boolean> {
+  try {
+    const setting = await storage.getSystemSettingByKey('emailNotifications.enabled');
+    return setting?.value !== 'false'; // Standard er aktivert hvis ikke satt
+  } catch (error) {
+    console.error('Feil ved sjekking av e-postvarslings-innstilling:', error);
+    return true; // Aktivert som standard ved feil
+  }
+}
 
 // Opprette en transporter for å sende e-post
 // Bruker SMTP konfigurasjon fra miljøvariabler eller standardinnstillinger
@@ -163,9 +177,17 @@ export async function sendCalendarNotification(
 /**
  * Send standard kalenderoppdaterings-e-post
  * Denne funksjonen sender en generell varslings-e-post om kalenderendringer
+ * Sender også kopi til avsender med informasjon om hvem som mottok e-posten
  */
 export async function sendStandardCalendarUpdateEmail(targetUser: User): Promise<boolean> {
   try {
+    // Sjekk om e-postvarsler er aktivert
+    const emailEnabled = await isEmailNotificationsEnabled();
+    if (!emailEnabled) {
+      console.log('E-postvarsler er deaktivert i systeminnstillinger');
+      return false;
+    }
+
     if (!targetUser.email) {
       console.error(`Cannot send notification: User ${targetUser.id} has no email address`);
       return false;
@@ -301,6 +323,7 @@ Vennligst logg inn på din konto for å se detaljene og oppdatere dine planer.
 Med vennlig hilsen,
 Huseierkalenderen`;
 
+    // Send e-post til brukeren
     const mailOptions = {
       from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
       to: targetUser.email,
@@ -311,6 +334,96 @@ Huseierkalenderen`;
 
     const info = await mailer.sendMail(mailOptions);
     console.log(`Standard kalenderoppdaterings-epost sendt til ${targetUser.email}: ${info.messageId}`);
+    
+    // Send kopi til avsender med informasjon om mottaker
+    const copyHtmlContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          line-height: 1.8;
+          color: #333;
+          margin: 0;
+          padding: 0;
+          background-color: #f5f5f5;
+        }
+        .container {
+          max-width: 600px;
+          margin: 20px auto;
+          padding: 0;
+          border: 1px solid #ddd;
+          border-radius: 10px;
+          overflow: hidden;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .copy-notice {
+          background: #fef3c7;
+          border-left: 4px solid #f59e0b;
+          padding: 15px 20px;
+          margin: 0;
+        }
+        .header {
+          background: linear-gradient(135deg, #1a1a2e 0%, #0f766e 100%);
+          color: #fde047;
+          padding: 20px;
+          text-align: center;
+        }
+        .content {
+          padding: 20px;
+          background-color: #ffffff;
+        }
+        .footer {
+          text-align: center;
+          padding: 15px;
+          font-size: 12px;
+          color: #666;
+          background-color: #f9f9f9;
+          border-top: 1px solid #eee;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="copy-notice">
+          <strong>KOPI AV SENDT E-POST</strong><br>
+          Denne e-posten ble sendt til: <strong>${targetUser.name}</strong> (${targetUser.email})
+        </div>
+        <div class="header">
+          <h3>Huseierkalenderen - Kopi</h3>
+        </div>
+        <div class="content">
+          <p><strong>Mottaker:</strong> ${targetUser.name}</p>
+          <p><strong>E-post:</strong> ${targetUser.email}</p>
+          <p><strong>Tidspunkt:</strong> ${new Date().toLocaleString('nb-NO')}</p>
+          <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+          <p>Innholdet i den originale e-posten var en kalenderoppdatering.</p>
+        </div>
+        <div class="footer">
+          <p>Automatisk kopi fra Huseierkalenderen</p>
+        </div>
+      </div>
+    </body>
+    </html>
+    `;
+    
+    const copyMailOptions = {
+      from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
+      to: FROM_EMAIL,
+      subject: `[KOPI] ${subject} - Sendt til ${targetUser.name}`,
+      html: copyHtmlContent,
+      text: `KOPI AV SENDT E-POST\n\nDenne e-posten ble sendt til: ${targetUser.name} (${targetUser.email})\nTidspunkt: ${new Date().toLocaleString('nb-NO')}`
+    };
+    
+    try {
+      await mailer.sendMail(copyMailOptions);
+      console.log(`Kopi sendt til avsender om e-post til ${targetUser.email}`);
+    } catch (copyError) {
+      console.error('Feil ved sending av kopi til avsender:', copyError);
+    }
+    
     return true;
   } catch (error) {
     console.error('Feil ved sending av standard kalenderoppdaterings-epost:', error);

@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
-import { Loader2, Settings, Wrench } from "lucide-react";
+import { Loader2, Settings, Wrench, Mail } from "lucide-react";
 
 // Color picker component placeholder (to be added later with packager_tool)
 interface ColorPickerProps {
@@ -41,6 +41,9 @@ export default function SystemSettings() {
   // Maintenance mode state
   const [maintenanceEnabled, setMaintenanceEnabled] = useState(false);
   const [maintenanceMessage, setMaintenanceMessage] = useState("Siden er under ombygging og vil være snart tilbake");
+  
+  // Email notifications state
+  const [emailNotificationsEnabled, setEmailNotificationsEnabled] = useState(true);
   
   // Fetch system settings
   const { data: systemSettings, isLoading } = useQuery<SystemSetting[]>({
@@ -107,6 +110,8 @@ export default function SystemSettings() {
           setMaintenanceEnabled(setting.value === 'true');
         } else if (setting.key === "maintenance.message") {
           setMaintenanceMessage(setting.value);
+        } else if (setting.key === "emailNotifications.enabled") {
+          setEmailNotificationsEnabled(setting.value !== 'false');
         }
       });
     }
@@ -329,8 +334,49 @@ export default function SystemSettings() {
           </TabsContent>
 
           <TabsContent value="annet">
-            <div className="p-4 text-center border rounded-md">
-              <p>Andre innstillinger kommer snart...</p>
+            <div className="space-y-6">
+              <Card className="border-blue-200 bg-blue-50">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2 text-blue-800">
+                    <Mail className="h-5 w-5" />
+                    E-postvarsler
+                  </CardTitle>
+                  <CardDescription className="text-blue-700">
+                    Aktiver eller deaktiver automatiske e-postvarsler til brukere ved kalenderendringer.
+                    Når aktivert, sendes e-post til bruker og kopi til avsender.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="space-y-1">
+                      <Label htmlFor="email-toggle" className="text-blue-800 font-medium">
+                        E-postvarsler aktivert
+                      </Label>
+                      <p className="text-sm text-blue-700">
+                        {emailNotificationsEnabled ? "E-postvarsler sendes ved kalenderendringer" : "E-postvarsler er deaktivert"}
+                      </p>
+                    </div>
+                    <Switch
+                      id="email-toggle"
+                      checked={emailNotificationsEnabled}
+                      onCheckedChange={(checked) => {
+                        setEmailNotificationsEnabled(checked);
+                        saveSetting("emailNotifications.enabled", checked ? 'true' : 'false');
+                      }}
+                      className="data-[state=checked]:bg-blue-600"
+                    />
+                  </div>
+                  
+                  <div className="bg-white p-4 rounded-md border border-blue-200">
+                    <h4 className="font-medium text-blue-800 mb-2">Slik fungerer e-postvarsler:</h4>
+                    <ul className="text-sm text-blue-700 space-y-1 list-disc list-inside">
+                      <li>E-post sendes automatisk ved nye bookinger, endringer eller slettinger</li>
+                      <li>Kopi av alle e-poster sendes til avsender-adressen</li>
+                      <li>Kopien inneholder informasjon om hvem som mottok e-posten</li>
+                    </ul>
+                  </div>
+                </CardContent>
+              </Card>
             </div>
           </TabsContent>
         </Tabs>

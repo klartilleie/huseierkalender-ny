@@ -186,6 +186,8 @@ This is a comprehensive calendar and customer service management application for
 - September 13, 2025. Successfully imported 9 bookings for "Flott Feriehus i Øksnevik" property from Geir Stølen's CSV file with proper color coding (Blue for New, Green for Confirmed, Orange for Owner blocks)
 - September 22, 2025. Optimized API synchronization: Implemented delta sync with modifiedSince parameter, reduced time window to -30/+90 days for better performance, added automatic email removal from all event descriptions for privacy
 - January 3, 2026. Implemented standard calendar notification email system with "Huseierkalenderen" branding, sends automatic emails when calendar events are created, updated, or deleted
+- January 3, 2026. Added automatic copy of all emails to sender (kalender@klartilleie.no) with information about who received the email
+- January 3, 2026. Added admin toggle in System Settings to enable/disable email notifications to users
 
 ## User Preferences
 
