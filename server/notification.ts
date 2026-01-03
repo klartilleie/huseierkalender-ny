@@ -161,45 +161,182 @@ export async function sendCalendarNotification(
 }
 
 /**
+ * Send standard kalenderoppdaterings-e-post
+ * Denne funksjonen sender en generell varslings-e-post om kalenderendringer
+ */
+export async function sendStandardCalendarUpdateEmail(targetUser: User): Promise<boolean> {
+  try {
+    if (!targetUser.email) {
+      console.error(`Cannot send notification: User ${targetUser.id} has no email address`);
+      return false;
+    }
+
+    const subject = 'Ny oppdatering i din huseierkalender 🏠';
+    
+    const htmlContent = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <style>
+        body {
+          font-family: Arial, sans-serif;
+          line-height: 1.8;
+          color: #333;
+          margin: 0;
+          padding: 0;
+          background-color: #f5f5f5;
+        }
+        .container {
+          max-width: 600px;
+          margin: 20px auto;
+          padding: 0;
+          border: 1px solid #ddd;
+          border-radius: 10px;
+          overflow: hidden;
+          box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+          background: linear-gradient(135deg, #1a1a2e 0%, #0f766e 100%);
+          color: #fde047;
+          padding: 30px 20px;
+          text-align: center;
+        }
+        .header h2 {
+          margin: 0;
+          font-size: 24px;
+        }
+        .header .emoji {
+          font-size: 40px;
+          margin-bottom: 10px;
+        }
+        .content {
+          padding: 30px;
+          background-color: #ffffff;
+        }
+        .content p {
+          margin: 15px 0;
+        }
+        .highlight-box {
+          background-color: #f0fdf4;
+          border-left: 4px solid #0f766e;
+          padding: 15px 20px;
+          margin: 20px 0;
+          border-radius: 0 8px 8px 0;
+        }
+        .highlight-box p {
+          margin: 8px 0;
+        }
+        .button-container {
+          text-align: center;
+          margin: 30px 0 20px 0;
+        }
+        .button {
+          display: inline-block;
+          background: linear-gradient(135deg, #0f766e 0%, #10b981 100%);
+          color: white !important;
+          padding: 15px 40px;
+          text-decoration: none;
+          border-radius: 8px;
+          font-weight: bold;
+          font-size: 16px;
+        }
+        .footer {
+          text-align: center;
+          padding: 20px;
+          font-size: 12px;
+          color: #666;
+          background-color: #f9f9f9;
+          border-top: 1px solid #eee;
+        }
+        .signature {
+          font-style: italic;
+          color: #0f766e;
+          font-weight: bold;
+        }
+      </style>
+    </head>
+    <body>
+      <div class="container">
+        <div class="header">
+          <div class="emoji">🏠</div>
+          <h2>Huseierkalenderen</h2>
+        </div>
+        <div class="content">
+          <p>Hei!</p>
+          
+          <p>Dette er et automatisk varsel om at det har skjedd en endring i din kalender.</p>
+          
+          <div class="highlight-box">
+            <p>Det har enten kommet inn en ny booking.</p>
+            <p>Eller det er gjort en endring/sletting i en eksisterende hendelse.</p>
+          </div>
+          
+          <p>Vennligst logg inn på din konto for å se detaljene og oppdatere dine planer.</p>
+          
+          <div class="button-container">
+            <a href="${process.env.APP_URL || 'https://kalender.smarthjem.as'}" class="button">Åpne kalenderen</a>
+          </div>
+          
+          <p class="signature">Med vennlig hilsen,<br>Huseierkalenderen</p>
+        </div>
+        <div class="footer">
+          <p>Dette er en automatisk e-post fra Smart Hjem Kalender-systemet.</p>
+        </div>
+      </div>
+    </body>
+    </html>
+    `;
+
+    const textContent = `Hei!
+
+Dette er et automatisk varsel om at det har skjedd en endring i din kalender.
+
+Det har enten kommet inn en ny booking.
+
+Eller det er gjort en endring/sletting i en eksisterende hendelse.
+
+Vennligst logg inn på din konto for å se detaljene og oppdatere dine planer.
+
+Med vennlig hilsen,
+Huseierkalenderen`;
+
+    const mailOptions = {
+      from: `"${FROM_NAME}" <${FROM_EMAIL}>`,
+      to: targetUser.email,
+      subject: subject,
+      html: htmlContent,
+      text: textContent
+    };
+
+    const info = await mailer.sendMail(mailOptions);
+    console.log(`Standard kalenderoppdaterings-epost sendt til ${targetUser.email}: ${info.messageId}`);
+    return true;
+  } catch (error) {
+    console.error('Feil ved sending av standard kalenderoppdaterings-epost:', error);
+    return false;
+  }
+}
+
+/**
  * Send varsel om ny kalenderhendelse
  */
 export async function notifyNewEvent(user: User, targetUser: User, event: Event): Promise<boolean> {
-  const subject = 'Ny hendelse i kalenderen';
-  let message = `En ny hendelse er lagt til i kalenderen ${event.title ? `med tittel "${event.title}"` : ''}.`;
-  
-  if (user.id !== targetUser.id) {
-    message = `${user.name} har lagt til en ny hendelse i kalenderen ${event.title ? `med tittel "${event.title}"` : ''}.`;
-  }
-  
-  return sendCalendarNotification(targetUser, subject, message, event);
+  return sendStandardCalendarUpdateEmail(targetUser);
 }
 
 /**
  * Send varsel om oppdatert kalenderhendelse
  */
 export async function notifyUpdatedEvent(user: User, targetUser: User, event: Event): Promise<boolean> {
-  const subject = 'Oppdatert hendelse i kalenderen';
-  let message = `En hendelse er oppdatert i kalenderen ${event.title ? `med tittel "${event.title}"` : ''}.`;
-  
-  if (user.id !== targetUser.id) {
-    message = `${user.name} har oppdatert en hendelse i kalenderen ${event.title ? `med tittel "${event.title}"` : ''}.`;
-  }
-  
-  return sendCalendarNotification(targetUser, subject, message, event);
+  return sendStandardCalendarUpdateEmail(targetUser);
 }
 
 /**
  * Send varsel om slettet kalenderhendelse
  */
 export async function notifyDeletedEvent(user: User, targetUser: User, event: Event): Promise<boolean> {
-  const subject = 'Slettet hendelse fra kalenderen';
-  let message = `En hendelse er slettet fra kalenderen ${event.title ? `med tittel "${event.title}"` : ''}.`;
-  
-  if (user.id !== targetUser.id) {
-    message = `${user.name} har slettet en hendelse fra kalenderen ${event.title ? `med tittel "${event.title}"` : ''}.`;
-  }
-  
-  return sendCalendarNotification(targetUser, subject, message, event);
+  return sendStandardCalendarUpdateEmail(targetUser);
 }
 
 /**
