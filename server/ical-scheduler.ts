@@ -139,12 +139,12 @@ async function syncSingleIcalFeed(feedId: number): Promise<void> {
     const now = new Date();
     const preservationThreshold = new Date(now.getTime() - (3 * 365 * 24 * 60 * 60 * 1000)); // 3 år tilbake - bevar minst 3 år med data
     
-    // Use optimized time window: 30 days backward, 90 days forward (matching Beds24 sync)
+    // Use optimized time window: 30 days backward, 360 days forward (matching Beds24 sync)
     const syncWindowStart = new Date(now.getTime() - (30 * 24 * 60 * 60 * 1000)); // 30 days back
-    const syncWindowEnd = new Date(now.getTime() + (90 * 24 * 60 * 60 * 1000)); // 90 days forward
+    const syncWindowEnd = new Date(now.getTime() + (360 * 24 * 60 * 60 * 1000)); // 360 days forward
     
     console.log(`iCal sync window for ${feed.name}: ${syncWindowStart.toISOString().split('T')[0]} to ${syncWindowEnd.toISOString().split('T')[0]}`);
-    console.log(`Using optimized time window: -30 days to +90 days (matching Beds24 sync)`);
+    console.log(`Using optimized time window: -30 days to +360 days (matching Beds24 sync)`);
     
     // Bygg map over eksisterende hendelser basert på UID
     const existingEventMap = new Map();
@@ -179,7 +179,7 @@ async function syncSingleIcalFeed(feedId: number): Promise<void> {
           
           currentFeedUids.add(uid);
           
-          // Filter out events outside the sync window (30 days back to 90 days forward)
+          // Filter out events outside the sync window (30 days back to 360 days forward)
           if (startDate < syncWindowStart || startDate > syncWindowEnd) {
             continue;
           }
@@ -354,21 +354,21 @@ async function syncSingleIcalFeed(feedId: number): Promise<void> {
  * Returnerer interval-referanse for å kunne stoppe planleggingen
  */
 export function scheduleAutomaticIcalSync(): NodeJS.Timeout {
-  console.log('Scheduling automatic iCal sync every 30 minutes to avoid API rate limits...');
+  console.log('Scheduling automatic iCal sync every 1 minute...');
   
   // Start umiddelbart med første synkronisering
   syncAllIcalFeeds().catch(err => 
     console.error('Initial iCal sync failed:', err)
   );
   
-  // Planlegg synkronisering hvert 30. minutt for å unngå API-begrensninger
+  // Planlegg synkronisering hvert minutt
   const interval = setInterval(() => {
     syncAllIcalFeeds().catch(err => 
       console.error('Automatic iCal sync failed:', err)
     );
-  }, 30 * 60 * 1000); // 30 minutter
+  }, 60 * 1000); // 1 minutt
   
-  console.log('iCal sync will run every 30 minutes to respect API rate limits');
+  console.log('iCal sync will run every 1 minute');
   
   return interval;
 }

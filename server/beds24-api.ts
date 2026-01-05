@@ -549,20 +549,20 @@ export class Beds24ApiClient {
     }
 
     try {
-      // Calculate date range - 30 days backward, 90 days forward
+      // Calculate date range - 30 days backward, 360 days forward
       const now = new Date();
       const fromDate = new Date(now);
       const toDate = new Date(now);
       
-      // Set time window: 30 days back, 90 days forward
+      // Set time window: 30 days back, 360 days forward
       fromDate.setDate(fromDate.getDate() - 30);
       fromDate.setHours(0, 0, 0, 0);
       
-      toDate.setDate(toDate.getDate() + 90);
+      toDate.setDate(toDate.getDate() + 360);
       toDate.setHours(23, 59, 59, 999);
       
       console.log(`Date range for user ${this.userId}: ${fromDate.toISOString().split('T')[0]} to ${toDate.toISOString().split('T')[0]}`);
-      console.log(`Using optimized time window: -30 days to +90 days`);
+      console.log(`Using optimized time window: -30 days to +360 days`);
 
       // Determine if we should use delta sync
       let modifiedSince: Date | undefined;
@@ -968,19 +968,19 @@ export async function syncAllBeds24Calendars(): Promise<void> {
  * Schedule automatic Beds24 sync
  */
 export function scheduleBeds24Sync(): NodeJS.Timeout {
-  // Run every 30 minutes for frequent sync
-  const interval = 30 * 60 * 1000; // 30 minutes in milliseconds
+  // Run every 1 minute for frequent sync
+  const interval = 60 * 1000; // 1 minute in milliseconds
   
   const timer = setInterval(async () => {
     await syncAllBeds24Calendars();
   }, interval);
   
-  // Run initial sync after 1 minute to let system start up
+  // Run initial sync after 30 seconds to let system start up
   setTimeout(async () => {
     await syncAllBeds24Calendars();
-  }, 60000);
+  }, 30000);
   
-  console.log('Scheduled automatic Beds24 sync (every 30 minutes)');
+  console.log('Scheduled automatic Beds24 sync (every 1 minute)');
   
   return timer;
 }

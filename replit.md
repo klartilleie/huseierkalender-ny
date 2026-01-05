@@ -74,8 +74,8 @@ This is a comprehensive calendar and customer service management application for
 
 ### External Integrations
 - **iCal Feeds**: Support for Google Calendar, Outlook, and other iCal sources
-  - **Sync Frequency**: Automatic sync every 30 minutes to respect API rate limits
-  - **Active Sync Window**: 30 days backward to 90 days forward (optimized September 22, 2025)
+  - **Sync Frequency**: Automatic sync every 1 minute for fast updates
+  - **Active Sync Window**: 30 days backward to 360 days forward (updated January 5, 2026)
   - **Event Retention**: Keeps events from 5 years ago to 5 years in the future
   - **Data Preservation Policy**: MINIMUM 3 YEARS - All iCal events are preserved for at least 3 years (updated August 18, 2025)
   - **Historical Preservation**: Events older than 3 years are never deleted, even if removed from source feed
@@ -83,9 +83,9 @@ This is a comprehensive calendar and customer service management application for
   - **Rate Limit Handling**: Automatic retry with exponential backoff for 503 errors
   - **beds24.com Integration**: Special handling for property booking feeds
     - **Delta Sync**: Only fetches bookings modified since last sync (modifiedSince parameter)
-    - **Optimized Window**: 30 days backward to 90 days forward
+    - **Optimized Window**: 30 days backward to 360 days forward
     - **CSV Protection**: CSV-imported events are protected from being overwritten
-    - **Sync Frequency**: Every 30 minutes
+    - **Sync Frequency**: Every 1 minute
     - **Safety Buffer**: 10 minutes overlap on delta sync to ensure no events are missed
 - **Email Notifications**: SMTP-based email system for notifications
 - **Translation Services**: Multi-language support with OpenAI integration
@@ -189,6 +189,8 @@ This is a comprehensive calendar and customer service management application for
 - January 3, 2026. Added automatic copy of all emails to sender (kalender@klartilleie.no) with information about who received the email
 - January 3, 2026. Added admin toggle in System Settings to enable/disable email notifications to users
 - January 3, 2026. Added per-user email notification setting - admin can enable/disable emails for individual users in user edit dialog
+- January 5, 2026. Extended sync window from 90 to 360 days forward for both iCal and Beds24 to capture bookings up to one year ahead
+- January 5, 2026. Increased sync frequency from 30 minutes to 1 minute for faster calendar updates
 
 ## User Preferences
 
