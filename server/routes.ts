@@ -37,6 +37,7 @@ import {
 import { translateText, detectLanguage } from './simple-translation-free';
 import { sanitizeEventDescription } from './utils/sanitize';
 import { cleanupExpiredSessions, cleanupOldSessions } from './session-cleanup';
+import { Beds24ApiClient } from './beds24-api';
 
 // Import the client-side iCal utilities
 import { generateICalContent as generateICalContentFromClient } from "../client/src/lib/ical-utils";
@@ -3987,6 +3988,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const event = await storage.createEvent(userId, eventData);
       
+      // Send blokkering til Beds24 hvis brukeren har Beds24-konfigurasjon
+      try {
+        const beds24Client = new Beds24ApiClient(userId);
+        const initialized = await beds24Client.initialize();
+        
+        if (initialized) {
+          const startDate = new Date(eventData.startTime);
+          const endDate = new Date(eventData.endTime);
+          
+          const result = await beds24Client.createBlock(startDate, endDate, eventData.title);
+          
+          if (result.success && result.bookingId) {
+            console.log(`Created Beds24 block ${result.bookingId} for event ${event.id}`);
+            
+            await storage.updateEvent(event.id, {
+              source: {
+                type: 'local_with_beds24',
+                beds24BookingId: result.bookingId
+              }
+            });
+          } else if (!result.success) {
+            console.warn(`Could not create Beds24 block for event ${event.id}: ${result.error}`);
+          }
+        }
+      } catch (beds24Error) {
+        console.warn('Beds24 block creation failed (non-fatal):', beds24Error);
+      }
+      
       // Hent brukerinformasjon
       const user = await storage.getUser(req.user.id);
       
@@ -4074,6 +4103,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const updatedEvent = await storage.updateEvent(eventId, eventData);
+      
+      // Oppdater Beds24-blokkering hvis hendelsen har en
+      if (existingEvent.source && typeof existingEvent.source === 'object' && 
+          'type' in existingEvent.source && existingEvent.source.type === 'local_with_beds24' &&
+          'beds24BookingId' in existingEvent.source) {
+        try {
+          const beds24BookingId = existingEvent.source.beds24BookingId as string;
+          console.log(`Updating Beds24 block ${beds24BookingId} for event ${eventId}`);
+          
+          const beds24Client = new Beds24ApiClient(existingEvent.userId);
+          const initialized = await beds24Client.initialize();
+          
+          if (initialized && eventData.startTime && eventData.endTime) {
+            const startDate = new Date(eventData.startTime);
+            const endDate = new Date(eventData.endTime);
+            
+            const result = await beds24Client.updateBlock(beds24BookingId, startDate, endDate, eventData.title);
+            if (result.success) {
+              console.log(`Successfully updated Beds24 block ${beds24BookingId}`);
+            } else {
+              console.warn(`Could not update Beds24 block: ${result.error}`);
+            }
+          }
+        } catch (beds24Error) {
+          console.warn('Beds24 block update failed (non-fatal):', beds24Error);
+        }
+      }
       
       // Send varslinger
       const user = await storage.getUser(req.user.id);
@@ -4188,6 +4244,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         eventUserId: eventCopy.userId,
         currentUserId: user?.id
       });
+      
+      // Slett Beds24-blokkering hvis hendelsen har en
+      if (existingEvent.source && typeof existingEvent.source === 'object' && 
+          'type' in existingEvent.source && existingEvent.source.type === 'local_with_beds24' &&
+          'beds24BookingId' in existingEvent.source) {
+        try {
+          const beds24BookingId = existingEvent.source.beds24BookingId as string;
+          console.log(`Deleting Beds24 block ${beds24BookingId} for event ${eventId}`);
+          
+          const beds24Client = new Beds24ApiClient(existingEvent.userId);
+          const initialized = await beds24Client.initialize();
+          
+          if (initialized) {
+            const result = await beds24Client.deleteBlock(beds24BookingId);
+            if (result.success) {
+              console.log(`Successfully deleted Beds24 block ${beds24BookingId}`);
+            } else {
+              console.warn(`Could not delete Beds24 block: ${result.error}`);
+            }
+          }
+        } catch (beds24Error) {
+          console.warn('Beds24 block deletion failed (non-fatal):', beds24Error);
+        }
+      }
       
       // Slett hendelsen
       const deleteResult = await storage.deleteEvent(eventId);
