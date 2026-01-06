@@ -549,6 +549,20 @@ export class Beds24ApiClient {
     }
 
     try {
+      // Check if user has an active Beds24 iCal feed - if so, skip API sync to avoid duplicates
+      // iCal feeds from Beds24 contain better guest names, so we prefer them
+      const userIcalFeeds = await storage.getUserIcalFeeds(this.userId);
+      const activeBeds24IcalFeed = userIcalFeeds?.find(feed => 
+        feed.enabled && 
+        feed.feedType === 'import' && 
+        feed.url.includes('beds24.com')
+      );
+      
+      if (activeBeds24IcalFeed) {
+        console.log(`User ${this.userId} has active Beds24 iCal feed "${activeBeds24IcalFeed.name}" - skipping API sync to prevent duplicates`);
+        return { synced: 0, updated: 0, deleted: 0 };
+      }
+
       // Calculate date range - 30 days backward, 360 days forward
       const now = new Date();
       const fromDate = new Date(now);
