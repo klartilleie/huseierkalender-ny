@@ -226,7 +226,7 @@ export async function exportUserCalendarAsIcal(userId: number): Promise<string> 
     const allEvents = await storage.getEvents(userId);
     
     // Filter out external API events to prevent circular data flow
-    // Only export events that were created locally on the website
+    // Only export events that were created locally on the website WITHOUT Beds24 sync
     const localEvents = allEvents.filter(event => {
       // Exclude events that have an external source (came from APIs or feeds)
       if (event.source && 
@@ -238,6 +238,10 @@ export async function exportUserCalendarAsIcal(userId: number): Promise<string> 
         }
         // Filter out Beds24 API events
         if (event.source.type === 'beds24') {
+          return false;
+        }
+        // Filter out local events with Beds24 sync (already synced via API)
+        if (event.source.type === 'local_with_beds24') {
           return false;
         }
       }

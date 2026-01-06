@@ -554,7 +554,16 @@ export class Beds24ApiClient {
 
     try {
       const arrivalDate = startDate.toISOString().split('T')[0];
-      const departureDate = endDate.toISOString().split('T')[0];
+      let departureDate = endDate.toISOString().split('T')[0];
+      
+      // Beds24 krever at departure er minst dagen etter arrival
+      // Hvis inn- og utsjekk er samme dag, sett departure til dagen etter
+      if (arrivalDate === departureDate) {
+        const nextDay = new Date(endDate);
+        nextDay.setDate(nextDay.getDate() + 1);
+        departureDate = nextDay.toISOString().split('T')[0];
+        console.log(`Same-day event detected, adjusting departure to ${departureDate}`);
+      }
       
       console.log(`Creating Beds24 block for user ${this.userId}: ${arrivalDate} to ${departureDate}`);
 
@@ -638,7 +647,16 @@ export class Beds24ApiClient {
 
     try {
       const arrivalDate = startDate.toISOString().split('T')[0];
-      const departureDate = endDate.toISOString().split('T')[0];
+      let departureDate = endDate.toISOString().split('T')[0];
+      
+      // Beds24 krever at departure er minst dagen etter arrival
+      // Hvis inn- og utsjekk er samme dag, sett departure til dagen etter
+      if (arrivalDate === departureDate) {
+        const nextDay = new Date(endDate);
+        nextDay.setDate(nextDay.getDate() + 1);
+        departureDate = nextDay.toISOString().split('T')[0];
+        console.log(`Same-day event detected, adjusting departure to ${departureDate}`);
+      }
       
       console.log(`Updating Beds24 block ${bookingId} for user ${this.userId}: ${arrivalDate} to ${departureDate}`);
 
