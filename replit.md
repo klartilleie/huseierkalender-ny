@@ -191,6 +191,10 @@ This is a comprehensive calendar and customer service management application for
 - January 3, 2026. Added per-user email notification setting - admin can enable/disable emails for individual users in user edit dialog
 - January 5, 2026. Extended sync window from 90 to 360 days forward for both iCal and Beds24 to capture bookings up to one year ahead
 - January 5, 2026. Increased sync frequency from 30 minutes to 1 minute for faster calendar updates
+- January 6, 2026. Implemented bidirectional Beds24 API sync: local events now automatically create blocks in Beds24
+- January 6, 2026. Added Beds24ApiClient import to routes.ts for event synchronization (create, update, delete)
+- January 6, 2026. Updated iCal export to filter out 'local_with_beds24' events to prevent circular synchronization
+- January 6, 2026. Added same-day handling for Beds24 blocks (departure adjusted to day after arrival when needed)
 
 ## User Preferences
 
