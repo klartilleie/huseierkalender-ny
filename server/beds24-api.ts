@@ -540,6 +540,136 @@ export class Beds24ApiClient {
   }
 
   /**
+   * Create a block/blackout in Beds24 for the specified dates
+   * This is used when a user creates a calendar event to block availability
+   */
+  async createBlock(startDate: Date, endDate: Date, title?: string): Promise<{ success: boolean; bookingId?: string; error?: string }> {
+    if (!this.accessToken) {
+      return { success: false, error: 'Beds24 API not initialized - no access token' };
+    }
+
+    if (!this.config?.propId) {
+      return { success: false, error: 'No property ID configured for Beds24' };
+    }
+
+    try {
+      const arrivalDate = startDate.toISOString().split('T')[0];
+      const departureDate = endDate.toISOString().split('T')[0];
+      
+      console.log(`Creating Beds24 block for user ${this.userId}: ${arrivalDate} to ${departureDate}`);
+
+      const payload = {
+        propertyId: parseInt(this.config.propId),
+        arrival: arrivalDate,
+        departure: departureDate,
+        status: 'black',
+        firstName: title || 'Eier',
+        lastName: 'Sperre',
+        numAdult: 0,
+        numChild: 0
+      };
+
+      console.log('Beds24 block payload:', JSON.stringify(payload));
+
+      const response = await this.v2Instance.post('/bookings', payload, {
+        headers: {
+          'token': this.accessToken
+        }
+      });
+
+      console.log('Beds24 block response:', JSON.stringify(response.data));
+
+      if (response.data && (response.data.id || response.data.bookId)) {
+        const bookingId = (response.data.id || response.data.bookId).toString();
+        console.log(`Successfully created Beds24 block with ID: ${bookingId}`);
+        return { success: true, bookingId };
+      }
+
+      if (response.data && response.data.error) {
+        console.error('Beds24 block error:', response.data.error);
+        return { success: false, error: response.data.error };
+      }
+
+      return { success: true };
+    } catch (error: any) {
+      console.error('Failed to create Beds24 block:', error.response?.data || error.message);
+      return { success: false, error: error.response?.data?.message || error.message };
+    }
+  }
+
+  /**
+   * Delete a block/booking from Beds24
+   */
+  async deleteBlock(bookingId: string): Promise<{ success: boolean; error?: string }> {
+    if (!this.accessToken) {
+      return { success: false, error: 'Beds24 API not initialized - no access token' };
+    }
+
+    try {
+      console.log(`Deleting Beds24 block ${bookingId} for user ${this.userId}`);
+
+      const response = await this.v2Instance.delete(`/bookings/${bookingId}`, {
+        headers: {
+          'token': this.accessToken
+        }
+      });
+
+      console.log('Beds24 delete response:', JSON.stringify(response.data));
+
+      if (response.status === 200 || response.status === 204) {
+        console.log(`Successfully deleted Beds24 block ${bookingId}`);
+        return { success: true };
+      }
+
+      return { success: false, error: 'Unexpected response from Beds24' };
+    } catch (error: any) {
+      console.error('Failed to delete Beds24 block:', error.response?.data || error.message);
+      return { success: false, error: error.response?.data?.message || error.message };
+    }
+  }
+
+  /**
+   * Update a block/booking in Beds24
+   */
+  async updateBlock(bookingId: string, startDate: Date, endDate: Date, title?: string): Promise<{ success: boolean; error?: string }> {
+    if (!this.accessToken) {
+      return { success: false, error: 'Beds24 API not initialized - no access token' };
+    }
+
+    try {
+      const arrivalDate = startDate.toISOString().split('T')[0];
+      const departureDate = endDate.toISOString().split('T')[0];
+      
+      console.log(`Updating Beds24 block ${bookingId} for user ${this.userId}: ${arrivalDate} to ${departureDate}`);
+
+      const payload = {
+        arrival: arrivalDate,
+        departure: departureDate,
+        firstName: title || 'Eier',
+        lastName: 'Sperre'
+      };
+
+      const response = await this.v2Instance.put(`/bookings/${bookingId}`, payload, {
+        headers: {
+          'token': this.accessToken
+        }
+      });
+
+      console.log('Beds24 update response:', JSON.stringify(response.data));
+
+      if (response.status === 200) {
+        console.log(`Successfully updated Beds24 block ${bookingId}`);
+        return { success: true };
+      }
+
+      return { success: false, error: 'Unexpected response from Beds24' };
+    } catch (error: any) {
+      console.error('Failed to update Beds24 block:', error.response?.data || error.message);
+      return { success: false, error: error.response?.data?.message || error.message };
+    }
+  }
+
+  /**
    * Sync bookings to calendar with delta sync support
    */
   async syncBookingsToCalendar(): Promise<{ synced: number; updated: number; deleted: number }> {
