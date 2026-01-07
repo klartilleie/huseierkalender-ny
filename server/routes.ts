@@ -5474,6 +5474,65 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Setup Beds24 with Invite Code (OAuth flow)
+  app.post("/api/admin/beds24-setup-invite/:userId", isAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const { inviteCode, propId } = req.body;
+      
+      if (!inviteCode || !propId) {
+        return res.status(400).json({ message: "Invite code and property ID are required" });
+      }
+      
+      // Check if user exists
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      
+      console.log(`Admin ${req.user!.name} setting up Beds24 with invite code for user ${user.name}`);
+      
+      // Create Beds24 client and setup with invite code
+      const client = new Beds24ApiClient(userId);
+      const result = await client.setupWithInviteCode(inviteCode, propId);
+      
+      if (result.success) {
+        // Test the connection
+        const initialized = await client.initialize();
+        if (initialized) {
+          const connectionOk = await client.testConnection();
+          if (connectionOk) {
+            res.json({ 
+              message: "Beds24 successfully configured with invite code",
+              hasWriteAccess: true
+            });
+          } else {
+            res.json({ 
+              message: "Beds24 configured, but connection test failed. Please verify the property ID.",
+              hasWriteAccess: true
+            });
+          }
+        } else {
+          res.json({ 
+            message: "Beds24 configured, but initialization failed",
+            hasWriteAccess: true
+          });
+        }
+      } else {
+        res.status(400).json({ 
+          message: "Failed to setup Beds24 with invite code",
+          error: result.error
+        });
+      }
+    } catch (error: any) {
+      console.error("Error setting up Beds24 with invite code:", error);
+      res.status(500).json({ 
+        message: "Failed to setup Beds24 configuration",
+        error: error.message
+      });
+    }
+  });
+
   // Manually trigger Beds24 sync for a specific user
   app.post("/api/admin/beds24-sync/:userId", isAdmin, async (req: AuthenticatedRequest, res) => {
     try {

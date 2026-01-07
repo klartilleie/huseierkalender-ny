@@ -79,7 +79,10 @@ export const icalFeeds = pgTable("ical_feeds", {
 export const beds24Config = pgTable("beds24_config", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull().references(() => users.id).unique(),
-  apiKey: text("api_key").notNull(), // Long-life API token
+  apiKey: text("api_key").notNull(), // Access token (24 timer)
+  refreshToken: text("refresh_token"), // Refresh token for å fornye access token
+  tokenExpiry: timestamp("token_expiry"), // Når access token utløper
+  scopes: text("scopes"), // Tillatelser (f.eks. "read/bookings,write/bookings")
   propId: text("prop_id"), // Beds24 property ID
   syncEnabled: boolean("sync_enabled").default(true),
   syncHistoricalDays: integer("sync_historical_days").default(0), // CSV import handles historical data

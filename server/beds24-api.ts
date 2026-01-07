@@ -79,10 +79,30 @@ export class Beds24ApiClient {
         return false;
       }
 
-      // The API key is a direct long-life token that can be used as both access and refresh token
-      // Store it as both for proper API v2 handling
-      this.accessToken = this.config.apiKey;
-      this.refreshToken = this.config.apiKey;
+      // Check if we have OAuth tokens (new model) or long-life token (old model)
+      if (this.config.refreshToken) {
+        // OAuth model: Use refresh token to get fresh access token
+        this.refreshToken = this.config.refreshToken;
+        this.accessToken = this.config.apiKey; // Current access token
+        this.tokenExpiry = this.config.tokenExpiry ? new Date(this.config.tokenExpiry) : null;
+        
+        // Check if access token is expired or about to expire (5 min buffer)
+        const now = new Date();
+        const fiveMinutesFromNow = new Date(now.getTime() + 5 * 60 * 1000);
+        
+        if (!this.tokenExpiry || this.tokenExpiry < fiveMinutesFromNow) {
+          console.log(`Access token expired or expiring soon, refreshing for user ${this.userId}`);
+          const refreshed = await this.refreshAccessToken();
+          if (!refreshed) {
+            console.error(`Failed to refresh access token for user ${this.userId}`);
+            return false;
+          }
+        }
+      } else {
+        // Legacy model: Long-life token used as both access and refresh
+        this.accessToken = this.config.apiKey;
+        this.refreshToken = this.config.apiKey;
+      }
 
       console.log(`Beds24 API initialized for user ${this.userId} with property ID ${this.config.propId}`);
       return true;
@@ -93,9 +113,9 @@ export class Beds24ApiClient {
   }
 
   /**
-   * Exchange inviteCode for access token
+   * Exchange inviteCode for access token (public method for setup)
    */
-  private async exchangeInviteCode(inviteCode: string): Promise<boolean> {
+  async setupWithInviteCode(inviteCode: string, propId: string): Promise<{ success: boolean; error?: string }> {
     try {
       console.log(`Exchanging invite code for access token for user ${this.userId}`);
       
@@ -108,33 +128,37 @@ export class Beds24ApiClient {
 
       if (response.data && response.data.token) {
         this.accessToken = response.data.token;
+        this.refreshToken = response.data.refreshToken;
         
         // Set expiry time (usually 24 hours)
-        if (response.data.expiresIn) {
-          this.tokenExpiry = new Date(Date.now() + response.data.expiresIn * 1000);
-        }
+        const expiresIn = response.data.expiresIn || 86400;
+        this.tokenExpiry = new Date(Date.now() + expiresIn * 1000);
         
-        // Store refresh token if provided
-        if (response.data.refreshToken) {
-          // Update the stored config with the refresh token for future use
-          const updateData: Partial<InsertBeds24Config> = {
-            apiKey: response.data.refreshToken, // Store refresh token for future use
-            propId: this.config!.propId,
-            syncEnabled: this.config!.syncEnabled,
-            updatedAt: new Date()
-          };
-          await storage.upsertBeds24Config(this.userId, updateData);
-        }
+        // Store all tokens in database
+        const configData: any = {
+          userId: this.userId,
+          apiKey: response.data.token, // Current access token
+          refreshToken: response.data.refreshToken,
+          tokenExpiry: this.tokenExpiry,
+          scopes: 'read/bookings,write/bookings', // Default scopes for write access
+          propId: propId,
+          syncEnabled: true,
+          updatedAt: new Date()
+        };
         
-        console.log(`Successfully exchanged invite code for access token`);
-        return true;
+        await storage.upsertBeds24Config(this.userId, configData);
+        this.config = await storage.getBeds24Config(this.userId);
+        
+        console.log(`Successfully setup Beds24 with invite code for user ${this.userId}`);
+        return { success: true };
       }
       
       console.error('No token received from exchange:', response.data);
-      return false;
+      return { success: false, error: 'No token received from Beds24' };
     } catch (error: any) {
-      console.error('Failed to exchange invite code:', error.response?.data || error.message);
-      return false;
+      const errorMsg = error.response?.data?.message || error.response?.data?.error || error.message;
+      console.error('Failed to exchange invite code:', errorMsg);
+      return { success: false, error: errorMsg };
     }
   }
 
@@ -182,6 +206,22 @@ export class Beds24ApiClient {
 
       if (response.data && response.data.token) {
         this.accessToken = response.data.token;
+        
+        // Calculate new expiry time (default 24 hours)
+        const expiresIn = response.data.expiresIn || 86400;
+        this.tokenExpiry = new Date(Date.now() + expiresIn * 1000);
+        
+        // Save updated token to database
+        if (this.config) {
+          const updateData: any = {
+            apiKey: response.data.token,
+            tokenExpiry: this.tokenExpiry,
+            updatedAt: new Date()
+          };
+          await storage.upsertBeds24Config(this.userId, updateData);
+          console.log(`Saved refreshed access token for user ${this.userId}, expires at ${this.tokenExpiry}`);
+        }
+        
         console.log('Successfully refreshed access token');
         return true;
       }
