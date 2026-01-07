@@ -9,7 +9,7 @@ import { sanitizeEventDescription } from "./utils/sanitize";
 export async function syncUserIcalFeeds(userId: number): Promise<void> {
   try {
     // Hent brukerens aktive iCal-feeds
-    const userFeeds = await storage.getUserIcalFeeds(userId);
+    const userFeeds = await storage.getIcalFeeds(userId);
     
     if (!userFeeds || userFeeds.length === 0) {
       return; // Ingen feeds å synkronisere
