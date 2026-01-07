@@ -5504,9 +5504,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         eventsDeleted: result.deleted,
         bookingsFetched: result.synced + result.updated
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Error syncing Beds24:", error);
-      res.status(500).json({ message: "Failed to sync Beds24 data" });
+      const errorMessage = error.message || error.toString() || "Unknown error";
+      res.status(500).json({ 
+        message: "Failed to sync Beds24 data",
+        error: errorMessage,
+        details: error.response?.data || null
+      });
     }
   });
 
