@@ -5444,9 +5444,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const userId = parseInt(req.params.userId);
       const configData = req.body;
       
-      // Validate required fields
-      if (!configData.apiKey || !configData.propId) {
-        return res.status(400).json({ message: "API key and property ID are required" });
+      // Validate required fields - only propId is needed now (uses master OAuth)
+      if (!configData.propId) {
+        return res.status(400).json({ message: "Property ID is required" });
+      }
+      
+      // If usesMasterOAuth flag is set, copy tokens from master account (user ID 3)
+      if (configData.usesMasterOAuth) {
+        const masterConfig = await storage.getBeds24Config(3); // Admin master account
+        if (masterConfig && masterConfig.refreshToken) {
+          // Copy OAuth tokens from master to this user's config
+          configData.apiKey = masterConfig.apiKey;
+          configData.refreshToken = masterConfig.refreshToken;
+          configData.tokenExpiry = masterConfig.tokenExpiry;
+          configData.scopes = masterConfig.scopes;
+        } else {
+          return res.status(400).json({ message: "Master OAuth not configured. Please set up Beds24 with invite code first." });
+        }
+        delete configData.usesMasterOAuth; // Remove the flag before saving
+      }
+      
+      // If no apiKey provided and not using master OAuth, check if user already has one
+      if (!configData.apiKey) {
+        const existingConfig = await storage.getBeds24Config(userId);
+        if (existingConfig) {
+          configData.apiKey = existingConfig.apiKey;
+          configData.refreshToken = existingConfig.refreshToken;
+          configData.tokenExpiry = existingConfig.tokenExpiry;
+          configData.scopes = existingConfig.scopes;
+        } else {
+          return res.status(400).json({ message: "API key is required for new configuration" });
+        }
       }
       
       const config = await storage.upsertBeds24Config(userId, configData);

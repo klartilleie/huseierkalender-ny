@@ -45,6 +45,8 @@ interface Beds24Config {
   lastSync: Date | null;
   createdAt: Date;
   updatedAt: Date;
+  refreshToken?: string | null;
+  hasOAuth?: boolean;
 }
 
 interface User {
@@ -60,7 +62,6 @@ export default function AdminBeds24Config() {
     syncEnabled: true,
     syncHistoricalDays: 365,
     syncFutureDays: 365,
-    apiKey: 'MvWk626tozNCah8LLr0Al56HDfKTChIZ/mXxCv4Vz/jVMobTwv6DUrVZVkgRJdNPorn6mQD6EXEUMgvRLuBVWKsMq7A8V7zHSJi8H6DJWrd7ZLC/0PZVs/5mqu8DwVFBxCBJY+Xzy01dFQtvP0dBfA==',
     propId: '',
   });
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -91,7 +92,6 @@ export default function AdminBeds24Config() {
         syncEnabled: true,
         syncHistoricalDays: 365,
         syncFutureDays: 365,
-        apiKey: 'MvWk626tozNCah8LLr0Al56HDfKTChIZ/mXxCv4Vz/jVMobTwv6DUrVZVkgRJdNPorn6mQD6EXEUMgvRLuBVWKsMq7A8V7zHSJi8H6DJWrd7ZLC/0PZVs/5mqu8DwVFBxCBJY+Xzy01dFQtvP0dBfA==',
         propId: '',
       });
     }
@@ -174,16 +174,22 @@ export default function AdminBeds24Config() {
   const handleSave = () => {
     if (!selectedUserId) return;
     
-    if (!editingConfig.apiKey || !editingConfig.propId) {
+    if (!editingConfig.propId) {
       toast({
         title: "Manglende informasjon",
-        description: "API-nøkkel og eiendoms-ID er påkrevd.",
+        description: "Eiendoms-ID (Property ID) er påkrevd.",
         variant: "destructive",
       });
       return;
     }
 
-    saveMutation.mutate({ userId: selectedUserId, config: editingConfig });
+    // Use master OAuth config - no individual API key needed
+    const configToSave = {
+      ...editingConfig,
+      usesMasterOAuth: true
+    };
+
+    saveMutation.mutate({ userId: selectedUserId, config: configToSave });
   };
 
   const handleDelete = (userId: number) => {
@@ -260,22 +266,10 @@ export default function AdminBeds24Config() {
                 </DialogHeader>
                 
                 <div className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="apiKey">API Nøkkel (Long-life token) *</Label>
-                    <Input
-                      id="apiKey"
-                      type="password"
-                      value={editingConfig.apiKey || ''}
-                      onChange={(e) => setEditingConfig({
-                        ...editingConfig,
-                        apiKey: e.target.value
-                      })}
-                      placeholder="Lim inn Beds24 long-life token her"
-                      readOnly
-                      className="bg-gray-50"
-                    />
-                    <p className="text-xs text-gray-500">
-                      API-nøkkel er låst og lik for alle brukere. Kun eiendoms-ID endres per bruker.
+                  <div className="p-3 bg-green-50 border border-green-200 rounded-lg">
+                    <p className="text-sm text-green-800">
+                      <strong>OAuth-tilkobling aktiv</strong> - Systemet bruker master-kontoen for alle API-kall. 
+                      Du trenger bare å angi Property ID for denne brukeren.
                     </p>
                   </div>
 
@@ -288,8 +282,11 @@ export default function AdminBeds24Config() {
                         ...editingConfig,
                         propId: e.target.value
                       })}
-                      placeholder="f.eks. 123456"
+                      placeholder="f.eks. 270243"
                     />
+                    <p className="text-xs text-gray-500">
+                      Finn Property ID i Beds24 under Properties &gt; Basic Info
+                    </p>
                   </div>
 
                   <div className="space-y-2">
@@ -542,22 +539,24 @@ export default function AdminBeds24Config() {
         </div>
 
         {/* Information panel */}
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 space-y-2">
-          <h4 className="font-semibold text-blue-900 flex items-center gap-2">
-            <Settings className="h-4 w-4" />
-            Slik konfigurerer du Beds24 integrasjon
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 space-y-2">
+          <h4 className="font-semibold text-green-900 flex items-center gap-2">
+            <Check className="h-4 w-4" />
+            Beds24 OAuth-integrasjon aktiv
           </h4>
-          <ol className="text-sm text-blue-800 space-y-1 list-decimal list-inside">
-            <li>Gå til <strong>https://beds24.com/control3.php?pagetype=apiv2</strong></li>
-            <li>Logg inn og generer en "Long-life token"</li>
-            <li>Finn Property ID for hver eiendom (vises i Beds24 kontrollpanel)</li>
-            <li>Velg bruker fra listen ovenfor og klikk "Konfigurer"</li>
-            <li>Lim inn API token og Property ID</li>
-            <li>Klikk "Lagre" for å aktivere integrasjonen</li>
+          <p className="text-sm text-green-800">
+            Systemet er koblet til Beds24 med full lese- og skrivetilgang via OAuth. 
+            For å koble en bruker til sin eiendom:
+          </p>
+          <ol className="text-sm text-green-800 space-y-1 list-decimal list-inside">
+            <li>Velg bruker fra listen ovenfor</li>
+            <li>Klikk "Konfigurer"</li>
+            <li>Skriv inn Property ID fra Beds24 (finnes under Properties &gt; Basic Info)</li>
+            <li>Klikk "Lagre" for å aktivere synkronisering</li>
           </ol>
-          <div className="mt-3 p-2 bg-blue-100 rounded">
-            <p className="text-xs text-blue-900">
-              <strong>Tips:</strong> Samme API token kan brukes for alle eiendommer, men hver bruker trenger sin unike Property ID.
+          <div className="mt-3 p-2 bg-green-100 rounded">
+            <p className="text-xs text-green-900">
+              <strong>20 eiendommer tilgjengelig</strong> - Alle eiendommer i Beds24-kontoen er tilgjengelige for synkronisering.
             </p>
           </div>
         </div>
