@@ -522,17 +522,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Fetch events for the user - DIREKTE FRA DATABASE UTEN CACHING
       const allEvents = await storage.getEvents(userId);
       
-      // Filter out iCal events to prevent echoing back external feed events
-      // Only export events that were created locally on the website
+      // Filter out external events to prevent echoing back to source
+      // Only export events that were created locally on the website WITHOUT external sync
       const localEvents = allEvents.filter(event => {
-        // Exclude events that have an iCal source (came from external feeds)
         if (event.source && 
             typeof event.source === 'object' && 
-            'type' in event.source && 
-            event.source.type === 'ical') {
-          return false;
+            'type' in event.source) {
+          // Exclude iCal events (came from external feeds)
+          if (event.source.type === 'ical') {
+            return false;
+          }
+          // Exclude Beds24 API events (came from Beds24)
+          if (event.source.type === 'beds24') {
+            return false;
+          }
+          // Exclude local events already synced to Beds24 (prevents circular sync)
+          if (event.source.type === 'local_with_beds24') {
+            return false;
+          }
         }
-        // Include only locally created events
+        // Include only locally created events without external sync
         return true;
       });
       
