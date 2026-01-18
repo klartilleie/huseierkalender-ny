@@ -195,6 +195,9 @@ This is a comprehensive calendar and customer service management application for
 - January 6, 2026. Added Beds24ApiClient import to routes.ts for event synchronization (create, update, delete)
 - January 6, 2026. Updated iCal export to filter out 'local_with_beds24' events to prevent circular synchronization
 - January 6, 2026. Added same-day handling for Beds24 blocks (departure adjusted to day after arrival when needed)
+- January 18, 2026. Implemented booking payout calculator with API endpoint for calculating payouts from Beds24 bookings (price × nights × discount)
+- January 18, 2026. Added BookingPayoutCalculator component with tabbed interface in PayoutsManagement showing itemized booking payouts
+- January 18, 2026. Implemented denylist-based status filtering to exclude non-revenue bookings (cancelled, black, blocked) from payout calculations
 
 ## User Preferences
 
