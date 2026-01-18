@@ -131,6 +131,7 @@ export interface IStorage {
   
   // Price ranges methods (prisintervaller)
   getPriceRanges(): Promise<PriceRange[]>;
+  getPriceRangesByUser(userId: number): Promise<PriceRange[]>;
   getPriceRange(id: number): Promise<PriceRange | undefined>;
   createPriceRange(priceRange: InsertPriceRange): Promise<PriceRange>;
   updatePriceRange(id: number, priceRange: Partial<InsertPriceRange>): Promise<PriceRange | undefined>;
@@ -1198,6 +1199,12 @@ export class DatabaseStorage implements IStorage {
   // Price ranges methods (prisintervaller)
   async getPriceRanges(): Promise<PriceRange[]> {
     return db.select().from(priceRanges).orderBy(asc(priceRanges.createdAt));
+  }
+
+  async getPriceRangesByUser(userId: number): Promise<PriceRange[]> {
+    return db.select().from(priceRanges)
+      .where(eq(priceRanges.userId, userId))
+      .orderBy(asc(priceRanges.createdAt));
   }
 
   async getPriceRange(id: number): Promise<PriceRange | undefined> {

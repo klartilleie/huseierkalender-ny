@@ -5688,6 +5688,125 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Calculate booking payouts - get all bookings with calculated payout amounts
+  app.post("/api/admin/payouts/calculate-booking-payouts", hasAdminAccess, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { userId, month, year } = req.body;
+      
+      if (!userId || !month || !year) {
+        res.status(400).json({ message: "userId, month, and year are required" });
+        return;
+      }
+
+      // Get user's price ranges (active ones)
+      const userPriceRanges = await storage.getPriceRangesByUser(userId);
+      const activePriceRange = userPriceRanges.find(pr => pr.isActive);
+      
+      if (!activePriceRange) {
+        res.status(400).json({ 
+          message: "Ingen aktive prisintervaller funnet for denne brukeren",
+          bookings: [],
+          totalPayout: 0
+        });
+        return;
+      }
+
+      // Get minimum daily price and discount from active price range
+      const minDailyPrice = parseFloat(activePriceRange.priceFrom || "0");
+      const discountPercent = parseFloat(activePriceRange.discountPercent || "0");
+      
+      // Get Beds24 events for this user
+      const beds24Events = await storage.getBeds24Events(userId);
+      
+      // Filter events for the specified month and year
+      // Also filter out cancelled, blocked, and non-booking events
+      const monthEvents = beds24Events.filter(event => {
+        const startDate = new Date(event.startTime);
+        const eventMonth = startDate.getMonth() + 1;
+        const eventYear = startDate.getFullYear();
+        
+        // Check if within the specified month and year
+        if (eventMonth !== parseInt(month) || eventYear !== parseInt(year)) {
+          return false;
+        }
+        
+        // Get event source to check status
+        const source = event.source as any;
+        const status = (source?.status ?? 'unknown').toLowerCase();
+        
+        // Denylist approach: Only exclude events that definitely don't generate revenue
+        // This ensures we don't accidentally exclude valid bookings with unknown statuses
+        const nonRevenueStatuses = ['cancelled', 'black', 'blocked', 'canceled'];
+        if (nonRevenueStatuses.includes(status)) {
+          return false;
+        }
+        
+        return true;
+      });
+
+      // Calculate payout for each booking
+      const bookingPayouts = monthEvents.map(event => {
+        const startDate = new Date(event.startTime);
+        const endDate = event.endTime ? new Date(event.endTime) : new Date(startDate.getTime() + 24 * 60 * 60 * 1000);
+        
+        // Calculate number of nights
+        const nights = Math.ceil((endDate.getTime() - startDate.getTime()) / (24 * 60 * 60 * 1000));
+        
+        // Calculate gross amount (price × nights)
+        const grossAmount = minDailyPrice * nights;
+        
+        // Calculate discount
+        const discountAmount = grossAmount * (discountPercent / 100);
+        
+        // Calculate net payout
+        const netPayout = grossAmount - discountAmount;
+        
+        // Extract booking info from source
+        const source = event.source as any;
+        
+        return {
+          id: event.id,
+          guestName: event.title || 'Ukjent gjest',
+          checkIn: startDate.toISOString().split('T')[0],
+          checkOut: endDate.toISOString().split('T')[0],
+          nights: nights,
+          dailyPrice: minDailyPrice,
+          grossAmount: grossAmount,
+          discountPercent: discountPercent,
+          discountAmount: discountAmount,
+          netPayout: netPayout,
+          bookingId: source?.bookingId || null,
+          status: source?.status || 'unknown'
+        };
+      });
+
+      // Calculate totals
+      const totalGross = bookingPayouts.reduce((sum, b) => sum + b.grossAmount, 0);
+      const totalDiscount = bookingPayouts.reduce((sum, b) => sum + b.discountAmount, 0);
+      const totalNet = bookingPayouts.reduce((sum, b) => sum + b.netPayout, 0);
+      const totalNights = bookingPayouts.reduce((sum, b) => sum + b.nights, 0);
+
+      res.json({
+        bookings: bookingPayouts,
+        priceInfo: {
+          dailyPrice: minDailyPrice,
+          discountPercent: discountPercent,
+          priceRangeName: activePriceRange.name
+        },
+        totals: {
+          totalBookings: bookingPayouts.length,
+          totalNights: totalNights,
+          totalGross: totalGross,
+          totalDiscount: totalDiscount,
+          totalNet: totalNet
+        }
+      });
+    } catch (error) {
+      console.error("Error calculating booking payouts:", error);
+      res.status(500).json({ message: "Failed to calculate booking payouts" });
+    }
+  });
+
   // Calculate rental days from Beds24 API data (both admin and mini admin can calculate)
   app.post("/api/admin/payouts/calculate-rental-days", hasAdminAccess, async (req: AuthenticatedRequest, res) => {
     try {

@@ -6,6 +6,7 @@ import { nb } from "date-fns/locale";
 import { User, Payout } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
+import BookingPayoutCalculator from "./BookingPayoutCalculator";
 import {
   Table,
   TableBody,
@@ -31,6 +32,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "@/components/ui/tabs";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -51,7 +58,9 @@ import {
   X,
   Clock,
   Calendar,
-  Users
+  Users,
+  Calculator,
+  List
 } from "lucide-react";
 
 const MONTHS = [
@@ -249,6 +258,23 @@ export default function PayoutsManagement({ users }: PayoutsManagementProps) {
 
   return (
     <div>
+      <Tabs defaultValue="overview" className="space-y-4">
+        <TabsList className="grid w-full grid-cols-2 max-w-md">
+          <TabsTrigger value="overview" className="flex items-center gap-2">
+            <List className="h-4 w-4" />
+            Utbetalingsoversikt
+          </TabsTrigger>
+          <TabsTrigger value="calculator" className="flex items-center gap-2">
+            <Calculator className="h-4 w-4" />
+            Booking-kalkulator
+          </TabsTrigger>
+        </TabsList>
+        
+        <TabsContent value="calculator">
+          <BookingPayoutCalculator users={users} />
+        </TabsContent>
+        
+        <TabsContent value="overview">
       {/* Filters Card with improved styling */}
       <Card className="mb-6 border-2 border-blue-200 dark:border-blue-800 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950 dark:to-indigo-950">
         <CardHeader className="pb-3">
@@ -735,6 +761,8 @@ export default function PayoutsManagement({ users }: PayoutsManagementProps) {
           </DialogContent>
         </Dialog>
       )}
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
