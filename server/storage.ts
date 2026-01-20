@@ -187,7 +187,13 @@ export interface IStorage {
   getBookingPayout(id: number): Promise<BookingPayout | undefined>;
   getBookingPayoutByBookingId(bookingId: string): Promise<BookingPayout | undefined>;
   createBookingPayout(payout: InsertBookingPayout): Promise<BookingPayout>;
-  updateBookingPayout(id: number, payout: Partial<InsertBookingPayout>): Promise<BookingPayout | undefined>;
+  updateBookingPayout(id: number, payout: Partial<InsertBookingPayout> & {
+    adminAmount?: string;
+    isOverridden?: boolean;
+    overriddenById?: number;
+    overriddenAt?: Date;
+    notes?: string;
+  }): Promise<BookingPayout | undefined>;
   deleteBookingPayout(id: number): Promise<boolean>;
   
   // Session store
@@ -1581,7 +1587,13 @@ export class DatabaseStorage implements IStorage {
     return created;
   }
   
-  async updateBookingPayout(id: number, payout: Partial<InsertBookingPayout>): Promise<BookingPayout | undefined> {
+  async updateBookingPayout(id: number, payout: Partial<InsertBookingPayout> & {
+    adminAmount?: string;
+    isOverridden?: boolean;
+    overriddenById?: number;
+    overriddenAt?: Date;
+    notes?: string;
+  }): Promise<BookingPayout | undefined> {
     const [updated] = await db.update(bookingPayouts)
       .set({ ...payout, updatedAt: new Date() })
       .where(eq(bookingPayouts.id, id))
