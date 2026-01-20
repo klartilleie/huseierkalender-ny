@@ -12,6 +12,7 @@ import SystemSettings from "@/components/admin/SystemSettings";
 import BackupManager from "@/components/admin/BackupManager";
 import PayoutsManagement from "@/components/admin/PayoutsManagement";
 import AdminBeds24Config from "@/components/admin/AdminBeds24Config";
+import UserPropertiesManager from "@/components/admin/UserPropertiesManager";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
 import {

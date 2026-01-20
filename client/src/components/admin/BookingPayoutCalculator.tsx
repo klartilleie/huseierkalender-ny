@@ -1,10 +1,11 @@
-import React, { useState } from "react";
-import { useQuery, useMutation } from "@tanstack/react-query";
+import React, { useState, useEffect } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { format } from "date-fns";
 import { nb } from "date-fns/locale";
 import { User } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
+import { useAuth } from "@/hooks/use-auth";
 import {
   Table,
   TableBody,
@@ -30,6 +31,15 @@ import {
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { 
   Calculator, 
   Users,
@@ -38,7 +48,11 @@ import {
   Wallet,
   Percent,
   RefreshCw,
-  AlertCircle
+  AlertCircle,
+  Save,
+  Edit,
+  Building,
+  Check
 } from "lucide-react";
 
 const MONTHS = [
@@ -56,6 +70,15 @@ const MONTHS = [
   { value: 12, label: "Desember" },
 ];
 
+interface UserProperty {
+  id: number;
+  userId: number;
+  beds24PropId: string;
+  name: string;
+  isDefault: boolean;
+  isActive: boolean;
+}
+
 interface BookingPayout {
   id: number;
   guestName: string;
@@ -69,6 +92,9 @@ interface BookingPayout {
   netPayout: number;
   bookingId: string | null;
   status: string;
+  propertyName?: string;
+  isOverridden?: boolean;
+  adminAmount?: number;
 }
 
 interface PayoutResponse {
@@ -93,15 +119,38 @@ interface BookingPayoutCalculatorProps {
 
 export default function BookingPayoutCalculator({ users }: BookingPayoutCalculatorProps) {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const { user: currentUser } = useAuth();
+  const isReadOnly = currentUser?.isMiniAdmin && !currentUser?.isAdmin;
   const currentYear = new Date().getFullYear();
   const currentMonth = new Date().getMonth() + 1;
   
   const [selectedUser, setSelectedUser] = useState<number | null>(null);
+  const [selectedProperty, setSelectedProperty] = useState<string>("all");
   const [selectedMonth, setSelectedMonth] = useState<number>(currentMonth);
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const [payoutData, setPayoutData] = useState<PayoutResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [editingBooking, setEditingBooking] = useState<BookingPayout | null>(null);
+  const [editAmount, setEditAmount] = useState<string>("");
+  const [isSaving, setIsSaving] = useState(false);
+  
+  // Fetch user properties when a user is selected
+  const { data: userProperties = [] } = useQuery<UserProperty[]>({
+    queryKey: ["userProperties", selectedUser],
+    queryFn: async () => {
+      if (!selectedUser) return [];
+      const response = await apiRequest("GET", `/api/admin/user-properties?userId=${selectedUser}`);
+      return response.json();
+    },
+    enabled: !!selectedUser,
+  });
+  
+  // Reset property selection when user changes
+  useEffect(() => {
+    setSelectedProperty("all");
+  }, [selectedUser]);
 
   const calculatePayouts = async () => {
     if (!selectedUser) {
@@ -167,6 +216,122 @@ export default function BookingPayoutCalculator({ users }: BookingPayoutCalculat
       maximumFractionDigits: 0
     }).format(amount);
   };
+  
+  // Save all booking payouts to database
+  const saveBookingPayouts = async () => {
+    if (!payoutData || payoutData.bookings.length === 0) return;
+    
+    setIsSaving(true);
+    try {
+      const payoutsToSave = payoutData.bookings.map(booking => ({
+        userId: selectedUser,
+        propertyId: selectedProperty !== "all" ? parseInt(selectedProperty) : null,
+        bookingId: booking.bookingId || `${booking.guestName}_${booking.checkIn}`,
+        month: selectedMonth,
+        year: selectedYear,
+        guestName: booking.guestName,
+        propertyName: booking.propertyName || "",
+        checkIn: booking.checkIn,
+        checkOut: booking.checkOut,
+        nights: booking.nights,
+        pricePerNight: booking.dailyPrice.toString(),
+        discountPercent: booking.discountPercent.toString(),
+        calculatedAmount: booking.netPayout.toString(),
+        status: "pending"
+      }));
+      
+      await apiRequest("POST", "/api/admin/booking-payouts/batch-save", {
+        payouts: payoutsToSave
+      });
+      
+      toast({
+        title: "Utbetalinger lagret",
+        description: `${payoutsToSave.length} utbetalinger ble lagret`,
+      });
+    } catch (err: any) {
+      toast({
+        title: "Feil",
+        description: err.message || "Kunne ikke lagre utbetalinger",
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+  
+  // Override a single booking payout
+  const handleOverrideSubmit = async () => {
+    if (!editingBooking) return;
+    
+    const amount = parseFloat(editAmount);
+    if (isNaN(amount)) {
+      toast({
+        title: "Ugyldig beløp",
+        description: "Vennligst skriv inn et gyldig tall",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    try {
+      // First save the booking if not already saved
+      const bookingId = editingBooking.bookingId || `${editingBooking.guestName}_${editingBooking.checkIn}`;
+      
+      // Check if we need to create it first
+      await apiRequest("POST", "/api/admin/booking-payouts", {
+        userId: selectedUser,
+        propertyId: selectedProperty !== "all" ? parseInt(selectedProperty) : null,
+        bookingId: bookingId,
+        month: selectedMonth,
+        year: selectedYear,
+        guestName: editingBooking.guestName,
+        propertyName: editingBooking.propertyName || "",
+        checkIn: editingBooking.checkIn,
+        checkOut: editingBooking.checkOut,
+        nights: editingBooking.nights,
+        pricePerNight: editingBooking.dailyPrice.toString(),
+        discountPercent: editingBooking.discountPercent.toString(),
+        calculatedAmount: editingBooking.netPayout.toString(),
+        adminAmount: amount.toString(),
+        isOverridden: true,
+        status: "pending"
+      });
+      
+      // Update local state
+      if (payoutData) {
+        const updatedBookings = payoutData.bookings.map(b => 
+          b.id === editingBooking.id 
+            ? { ...b, netPayout: amount, isOverridden: true, adminAmount: amount }
+            : b
+        );
+        
+        const newTotalNet = updatedBookings.reduce((sum, b) => sum + (b.isOverridden ? (b.adminAmount || b.netPayout) : b.netPayout), 0);
+        
+        setPayoutData({
+          ...payoutData,
+          bookings: updatedBookings,
+          totals: {
+            ...payoutData.totals,
+            totalNet: newTotalNet
+          }
+        });
+      }
+      
+      toast({
+        title: "Utbetaling endret",
+        description: `Utbetaling for ${editingBooking.guestName} ble satt til ${formatCurrency(amount)}`,
+      });
+      
+      setEditingBooking(null);
+      setEditAmount("");
+    } catch (err: any) {
+      toast({
+        title: "Feil",
+        description: err.message || "Kunne ikke endre utbetaling",
+        variant: "destructive",
+      });
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -205,6 +370,39 @@ export default function BookingPayoutCalculator({ users }: BookingPayoutCalculat
                 </SelectContent>
               </Select>
             </div>
+            
+            {userProperties.length > 0 && (
+              <div className="w-48">
+                <Label className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2 block">
+                  Eiendom
+                </Label>
+                <Select 
+                  value={selectedProperty} 
+                  onValueChange={setSelectedProperty}
+                >
+                  <SelectTrigger className="h-12 text-base border-2 border-green-300 dark:border-green-700 bg-white dark:bg-slate-800">
+                    <SelectValue placeholder="Velg eiendom..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">
+                      <div className="flex items-center gap-2">
+                        <Building className="h-4 w-4 text-green-600" />
+                        Alle eiendommer
+                      </div>
+                    </SelectItem>
+                    {userProperties.map(property => (
+                      <SelectItem key={property.id} value={property.id.toString()}>
+                        <div className="flex items-center gap-2">
+                          <Building className="h-4 w-4 text-green-600" />
+                          {property.name}
+                          {property.isDefault && <Badge variant="outline" className="ml-1 text-xs">Standard</Badge>}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             
             <div className="w-40">
               <Label className="text-sm font-semibold text-slate-700 dark:text-slate-300 mb-2 block">
@@ -361,18 +559,19 @@ export default function BookingPayoutCalculator({ users }: BookingPayoutCalculat
                     <TableHead className="text-right">Rabatt</TableHead>
                     <TableHead className="text-right">Utbetaling</TableHead>
                     <TableHead className="text-center">Status</TableHead>
+                    {!isReadOnly && <TableHead className="text-center">Handling</TableHead>}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {payoutData.bookings.length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center py-8 text-muted-foreground">
+                      <TableCell colSpan={9} className="text-center py-8 text-muted-foreground">
                         Ingen bookinger funnet for denne perioden
                       </TableCell>
                     </TableRow>
                   ) : (
                     payoutData.bookings.map((booking) => (
-                      <TableRow key={booking.id}>
+                      <TableRow key={booking.id} className={booking.isOverridden ? "bg-blue-50 dark:bg-blue-950/30" : ""}>
                         <TableCell className="font-medium">{booking.guestName}</TableCell>
                         <TableCell>{format(new Date(booking.checkIn), "d. MMM", { locale: nb })}</TableCell>
                         <TableCell>{format(new Date(booking.checkOut), "d. MMM", { locale: nb })}</TableCell>
@@ -384,11 +583,33 @@ export default function BookingPayoutCalculator({ users }: BookingPayoutCalculat
                           -{formatCurrency(booking.discountAmount)}
                         </TableCell>
                         <TableCell className="text-right font-semibold text-green-600">
-                          {formatCurrency(booking.netPayout)}
+                          <div className="flex items-center justify-end gap-1">
+                            {formatCurrency(booking.isOverridden && booking.adminAmount ? booking.adminAmount : booking.netPayout)}
+                            {booking.isOverridden && (
+                              <Badge variant="secondary" className="ml-1 text-xs bg-blue-100 text-blue-700">
+                                <Check className="h-3 w-3 mr-1" />
+                                Endret
+                              </Badge>
+                            )}
+                          </div>
                         </TableCell>
                         <TableCell className="text-center">
                           {getStatusBadge(booking.status)}
                         </TableCell>
+                        {!isReadOnly && (
+                          <TableCell className="text-center">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setEditingBooking(booking);
+                                setEditAmount((booking.isOverridden && booking.adminAmount ? booking.adminAmount : booking.netPayout).toString());
+                              }}
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                          </TableCell>
+                        )}
                       </TableRow>
                     ))
                   )}
@@ -396,18 +617,35 @@ export default function BookingPayoutCalculator({ users }: BookingPayoutCalculat
               </Table>
               
               {payoutData.bookings.length > 0 && (
-                <div className="mt-4 pt-4 border-t flex justify-end gap-8">
-                  <div className="text-right">
-                    <p className="text-sm text-muted-foreground">Brutto total</p>
-                    <p className="text-lg font-semibold">{formatCurrency(payoutData.totals.totalGross)}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm text-muted-foreground">Total rabatt</p>
-                    <p className="text-lg font-semibold text-orange-600">-{formatCurrency(payoutData.totals.totalDiscount)}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-sm text-muted-foreground">Netto utbetaling</p>
-                    <p className="text-xl font-bold text-green-600">{formatCurrency(payoutData.totals.totalNet)}</p>
+                <div className="mt-4 pt-4 border-t flex justify-between items-end">
+                  {!isReadOnly && (
+                    <Button 
+                      onClick={saveBookingPayouts}
+                      disabled={isSaving}
+                      className="bg-green-600 hover:bg-green-700"
+                    >
+                      {isSaving ? (
+                        <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+                      ) : (
+                        <Save className="h-4 w-4 mr-2" />
+                      )}
+                      Lagre utbetalinger
+                    </Button>
+                  )}
+                  
+                  <div className="flex gap-8">
+                    <div className="text-right">
+                      <p className="text-sm text-muted-foreground">Brutto total</p>
+                      <p className="text-lg font-semibold">{formatCurrency(payoutData.totals.totalGross)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-muted-foreground">Total rabatt</p>
+                      <p className="text-lg font-semibold text-orange-600">-{formatCurrency(payoutData.totals.totalDiscount)}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm text-muted-foreground">Netto utbetaling</p>
+                      <p className="text-xl font-bold text-green-600">{formatCurrency(payoutData.totals.totalNet)}</p>
+                    </div>
                   </div>
                 </div>
               )}
@@ -415,6 +653,66 @@ export default function BookingPayoutCalculator({ users }: BookingPayoutCalculat
           </Card>
         </>
       )}
+      
+      {/* Dialog for editing booking payout */}
+      <Dialog open={!!editingBooking} onOpenChange={(open) => !open && setEditingBooking(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Endre utbetaling</DialogTitle>
+            <DialogDescription>
+              Endre utbetalingsbeløpet for {editingBooking?.guestName}. 
+              Når du endrer beløpet manuelt, vil systemet ikke overskrive dette ved fremtidige beregninger.
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="space-y-4 py-4">
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <Label className="text-muted-foreground">Innsjekk</Label>
+                <p className="font-medium">
+                  {editingBooking && format(new Date(editingBooking.checkIn), "d. MMMM yyyy", { locale: nb })}
+                </p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Utsjekk</Label>
+                <p className="font-medium">
+                  {editingBooking && format(new Date(editingBooking.checkOut), "d. MMMM yyyy", { locale: nb })}
+                </p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Netter</Label>
+                <p className="font-medium">{editingBooking?.nights}</p>
+              </div>
+              <div>
+                <Label className="text-muted-foreground">Systemberegnet</Label>
+                <p className="font-medium">{editingBooking && formatCurrency(editingBooking.netPayout)}</p>
+              </div>
+            </div>
+            
+            <div className="space-y-2">
+              <Label htmlFor="editAmount">Nytt utbetalingsbeløp (NOK)</Label>
+              <Input
+                id="editAmount"
+                type="number"
+                value={editAmount}
+                onChange={(e) => setEditAmount(e.target.value)}
+                placeholder="Skriv inn beløp..."
+                className="text-lg"
+              />
+            </div>
+          </div>
+          
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setEditingBooking(null)}>
+              Avbryt
+            </Button>
+            <Button onClick={handleOverrideSubmit} className="bg-blue-600 hover:bg-blue-700">
+              <Check className="h-4 w-4 mr-2" />
+              Lagre endring
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

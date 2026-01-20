@@ -198,6 +198,12 @@ This is a comprehensive calendar and customer service management application for
 - January 18, 2026. Implemented booking payout calculator with API endpoint for calculating payouts from Beds24 bookings (price × nights × discount)
 - January 18, 2026. Added BookingPayoutCalculator component with tabbed interface in PayoutsManagement showing itemized booking payouts
 - January 18, 2026. Implemented denylist-based status filtering to exclude non-revenue bookings (cancelled, black, blocked) from payout calculations
+- January 20, 2026. Added user_properties table for multiple Beds24 properties per user
+- January 20, 2026. Added booking_payouts table to store calculated payouts with admin override capability
+- January 20, 2026. Implemented UserPropertiesManager component for admin to add/edit/delete user properties
+- January 20, 2026. Added property selector dropdown in BookingPayoutCalculator for filtering by property
+- January 20, 2026. Added admin override functionality - when admin edits a payout amount, system preserves it and won't recalculate
+- January 20, 2026. Added read-only protection for mini-admin role in payout calculator (can view but not edit)
 
 ## User Preferences
 

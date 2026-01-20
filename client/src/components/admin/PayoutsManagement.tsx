@@ -7,6 +7,7 @@ import { User, Payout } from "@shared/schema";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import BookingPayoutCalculator from "./BookingPayoutCalculator";
+import UserPropertiesManager from "./UserPropertiesManager";
 import {
   Table,
   TableBody,
@@ -60,7 +61,8 @@ import {
   Calendar,
   Users,
   Calculator,
-  List
+  List,
+  Building
 } from "lucide-react";
 
 const MONTHS = [
@@ -259,7 +261,7 @@ export default function PayoutsManagement({ users }: PayoutsManagementProps) {
   return (
     <div>
       <Tabs defaultValue="overview" className="space-y-4">
-        <TabsList className="grid w-full grid-cols-2 max-w-md">
+        <TabsList className="grid w-full grid-cols-3 max-w-2xl">
           <TabsTrigger value="overview" className="flex items-center gap-2">
             <List className="h-4 w-4" />
             Utbetalingsoversikt
@@ -268,11 +270,23 @@ export default function PayoutsManagement({ users }: PayoutsManagementProps) {
             <Calculator className="h-4 w-4" />
             Booking-kalkulator
           </TabsTrigger>
+          {!isReadOnly && (
+            <TabsTrigger value="properties" className="flex items-center gap-2">
+              <Building className="h-4 w-4" />
+              Eiendommer
+            </TabsTrigger>
+          )}
         </TabsList>
         
         <TabsContent value="calculator">
           <BookingPayoutCalculator users={users} />
         </TabsContent>
+        
+        {!isReadOnly && (
+          <TabsContent value="properties">
+            <UserPropertiesManager users={users} />
+          </TabsContent>
+        )}
         
         <TabsContent value="overview">
       {/* Filters Card with improved styling */}

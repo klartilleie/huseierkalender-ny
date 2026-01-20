@@ -5858,6 +5858,277 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // ============ USER PROPERTIES API (Flere eiendommer per bruker) ============
+  
+  // Get properties for a specific user (admin can see any, users see their own)
+  app.get("/api/user-properties", async (req: AuthenticatedRequest, res) => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ message: "Not authenticated" });
+        return;
+      }
+      
+      const properties = await storage.getUserProperties(req.user.id);
+      res.json(properties);
+    } catch (error) {
+      console.error("Error fetching user properties:", error);
+      res.status(500).json({ message: "Failed to fetch properties" });
+    }
+  });
+  
+  // Admin: Get all properties or for a specific user
+  app.get("/api/admin/user-properties", hasAdminAccess, async (req: AuthenticatedRequest, res) => {
+    try {
+      const userId = req.query.userId ? parseInt(req.query.userId as string) : undefined;
+      
+      if (userId) {
+        const properties = await storage.getUserProperties(userId);
+        res.json(properties);
+      } else {
+        const properties = await storage.getAllUserProperties();
+        res.json(properties);
+      }
+    } catch (error) {
+      console.error("Error fetching user properties:", error);
+      res.status(500).json({ message: "Failed to fetch properties" });
+    }
+  });
+  
+  // Admin: Create a property for a user
+  app.post("/api/admin/user-properties", isAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { userId, beds24PropId, name, isDefault } = req.body;
+      
+      if (!userId || !beds24PropId || !name) {
+        res.status(400).json({ message: "userId, beds24PropId, and name are required" });
+        return;
+      }
+      
+      const property = await storage.createUserProperty({
+        userId,
+        beds24PropId,
+        name,
+        isDefault: isDefault || false
+      });
+      
+      res.json(property);
+    } catch (error) {
+      console.error("Error creating user property:", error);
+      res.status(500).json({ message: "Failed to create property" });
+    }
+  });
+  
+  // Admin: Update a property
+  app.patch("/api/admin/user-properties/:id", isAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const property = await storage.updateUserProperty(id, req.body);
+      
+      if (!property) {
+        res.status(404).json({ message: "Property not found" });
+        return;
+      }
+      
+      res.json(property);
+    } catch (error) {
+      console.error("Error updating user property:", error);
+      res.status(500).json({ message: "Failed to update property" });
+    }
+  });
+  
+  // Admin: Delete a property
+  app.delete("/api/admin/user-properties/:id", isAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const deleted = await storage.deleteUserProperty(id);
+      
+      if (!deleted) {
+        res.status(404).json({ message: "Property not found" });
+        return;
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting user property:", error);
+      res.status(500).json({ message: "Failed to delete property" });
+    }
+  });
+  
+  // ============ BOOKING PAYOUTS API (Lagrede utbetalinger) ============
+  
+  // Get stored booking payouts for current user
+  app.get("/api/booking-payouts", async (req: AuthenticatedRequest, res) => {
+    try {
+      if (!req.user) {
+        res.status(401).json({ message: "Not authenticated" });
+        return;
+      }
+      
+      const month = req.query.month ? parseInt(req.query.month as string) : undefined;
+      const year = req.query.year ? parseInt(req.query.year as string) : undefined;
+      
+      const payouts = await storage.getBookingPayouts(req.user.id, month, year);
+      res.json(payouts);
+    } catch (error) {
+      console.error("Error fetching booking payouts:", error);
+      res.status(500).json({ message: "Failed to fetch booking payouts" });
+    }
+  });
+  
+  // Admin: Get booking payouts for any user
+  app.get("/api/admin/booking-payouts/:userId", hasAdminAccess, async (req: AuthenticatedRequest, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const month = req.query.month ? parseInt(req.query.month as string) : undefined;
+      const year = req.query.year ? parseInt(req.query.year as string) : undefined;
+      
+      const payouts = await storage.getBookingPayouts(userId, month, year);
+      res.json(payouts);
+    } catch (error) {
+      console.error("Error fetching booking payouts:", error);
+      res.status(500).json({ message: "Failed to fetch booking payouts" });
+    }
+  });
+  
+  // Admin: Save/create booking payouts (initial calculation save)
+  app.post("/api/admin/booking-payouts", isAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const payoutData = req.body;
+      
+      // Check if booking payout already exists
+      const existing = await storage.getBookingPayoutByBookingId(payoutData.bookingId);
+      
+      if (existing) {
+        // If already overridden by admin, don't update
+        if (existing.isOverridden) {
+          res.json(existing);
+          return;
+        }
+        
+        // Update existing
+        const updated = await storage.updateBookingPayout(existing.id, payoutData);
+        res.json(updated);
+      } else {
+        // Create new
+        const created = await storage.createBookingPayout(payoutData);
+        res.json(created);
+      }
+    } catch (error) {
+      console.error("Error saving booking payout:", error);
+      res.status(500).json({ message: "Failed to save booking payout" });
+    }
+  });
+  
+  // Admin: Override a booking payout amount
+  app.patch("/api/admin/booking-payouts/:id/override", isAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const { adminAmount, notes } = req.body;
+      
+      if (adminAmount === undefined) {
+        res.status(400).json({ message: "adminAmount is required" });
+        return;
+      }
+      
+      const payout = await storage.updateBookingPayout(id, {
+        adminAmount: String(adminAmount),
+        isOverridden: true,
+        overriddenById: req.user!.id,
+        overriddenAt: new Date(),
+        notes: notes || undefined
+      });
+      
+      if (!payout) {
+        res.status(404).json({ message: "Booking payout not found" });
+        return;
+      }
+      
+      res.json(payout);
+    } catch (error) {
+      console.error("Error overriding booking payout:", error);
+      res.status(500).json({ message: "Failed to override booking payout" });
+    }
+  });
+  
+  // Admin: Update booking payout status
+  app.patch("/api/admin/booking-payouts/:id", isAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const payout = await storage.updateBookingPayout(id, req.body);
+      
+      if (!payout) {
+        res.status(404).json({ message: "Booking payout not found" });
+        return;
+      }
+      
+      res.json(payout);
+    } catch (error) {
+      console.error("Error updating booking payout:", error);
+      res.status(500).json({ message: "Failed to update booking payout" });
+    }
+  });
+  
+  // Admin: Delete a booking payout
+  app.delete("/api/admin/booking-payouts/:id", isAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const deleted = await storage.deleteBookingPayout(id);
+      
+      if (!deleted) {
+        res.status(404).json({ message: "Booking payout not found" });
+        return;
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting booking payout:", error);
+      res.status(500).json({ message: "Failed to delete booking payout" });
+    }
+  });
+  
+  // Admin: Batch save calculated booking payouts
+  app.post("/api/admin/booking-payouts/batch-save", isAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { payouts } = req.body;
+      
+      if (!Array.isArray(payouts)) {
+        res.status(400).json({ message: "payouts array is required" });
+        return;
+      }
+      
+      const results = [];
+      
+      for (const payoutData of payouts) {
+        // Check if booking payout already exists
+        const existing = await storage.getBookingPayoutByBookingId(payoutData.bookingId);
+        
+        if (existing) {
+          // If already overridden by admin, skip
+          if (existing.isOverridden) {
+            results.push(existing);
+            continue;
+          }
+          
+          // Update existing
+          const updated = await storage.updateBookingPayout(existing.id, payoutData);
+          results.push(updated);
+        } else {
+          // Create new
+          const created = await storage.createBookingPayout(payoutData);
+          results.push(created);
+        }
+      }
+      
+      res.json({ 
+        saved: results.length,
+        payouts: results
+      });
+    } catch (error) {
+      console.error("Error batch saving booking payouts:", error);
+      res.status(500).json({ message: "Failed to save booking payouts" });
+    }
+  });
+
   // Return the HttpServer 
   return httpServer;
 }

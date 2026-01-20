@@ -2,7 +2,7 @@ import {
   users, events, icalFeeds, markedDays, icalEventNotes, systemSettings,
   eventCollaborators, eventSuggestions, backups, passwordResetTokens,
   cases, caseMessages, caseAttachments, priceRanges, payouts, accountNumberLogs,
-  adminAgreements, agreementNotes, beds24Config,
+  adminAgreements, agreementNotes, beds24Config, userProperties, bookingPayouts,
   type User, type InsertUser, type Event, type InsertEvent, 
   type IcalFeed, type InsertIcalFeed, type MarkedDay, type InsertMarkedDay,
   type IcalEventNote, type InsertIcalEventNote, 
@@ -15,7 +15,9 @@ import {
   type AccountNumberLog, type InsertAccountNumberLog,
   type AdminAgreement, type InsertAdminAgreement,
   type AgreementNote, type InsertAgreementNote,
-  type Beds24Config, type InsertBeds24Config
+  type Beds24Config, type InsertBeds24Config,
+  type UserProperty, type InsertUserProperty,
+  type BookingPayout, type InsertBookingPayout
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, gte, lte, inArray, desc, sql } from "drizzle-orm";
@@ -170,6 +172,23 @@ export interface IStorage {
   updateBeds24Config(id: number, config: Partial<InsertBeds24Config>): Promise<Beds24Config | undefined>;
   deleteBeds24Config(userId: number): Promise<boolean>;
   getBeds24Events(userId: number): Promise<Event[]>;
+  
+  // User properties methods (flere eiendommer per bruker)
+  getUserProperties(userId: number): Promise<UserProperty[]>;
+  getAllUserProperties(): Promise<UserProperty[]>;
+  getUserProperty(id: number): Promise<UserProperty | undefined>;
+  createUserProperty(property: InsertUserProperty): Promise<UserProperty>;
+  updateUserProperty(id: number, property: Partial<InsertUserProperty>): Promise<UserProperty | undefined>;
+  deleteUserProperty(id: number): Promise<boolean>;
+  
+  // Booking payouts methods (lagrede utbetalinger med admin override)
+  getBookingPayouts(userId: number, month?: number, year?: number): Promise<BookingPayout[]>;
+  getBookingPayoutsByProperty(propertyId: number, month?: number, year?: number): Promise<BookingPayout[]>;
+  getBookingPayout(id: number): Promise<BookingPayout | undefined>;
+  getBookingPayoutByBookingId(bookingId: string): Promise<BookingPayout | undefined>;
+  createBookingPayout(payout: InsertBookingPayout): Promise<BookingPayout>;
+  updateBookingPayout(id: number, payout: Partial<InsertBookingPayout>): Promise<BookingPayout | undefined>;
+  deleteBookingPayout(id: number): Promise<boolean>;
   
   // Session store
   sessionStore: session.Store;
@@ -1460,6 +1479,120 @@ export class DatabaseStorage implements IStorage {
           eq(sql`${events.source}->>'type'`, 'beds24')
         )
       );
+  }
+  
+  // User properties methods
+  async getUserProperties(userId: number): Promise<UserProperty[]> {
+    return db.select()
+      .from(userProperties)
+      .where(eq(userProperties.userId, userId))
+      .orderBy(desc(userProperties.isDefault), asc(userProperties.name));
+  }
+  
+  async getAllUserProperties(): Promise<UserProperty[]> {
+    return db.select()
+      .from(userProperties)
+      .orderBy(asc(userProperties.userId), asc(userProperties.name));
+  }
+  
+  async getUserProperty(id: number): Promise<UserProperty | undefined> {
+    const [property] = await db.select()
+      .from(userProperties)
+      .where(eq(userProperties.id, id));
+    return property;
+  }
+  
+  async createUserProperty(property: InsertUserProperty): Promise<UserProperty> {
+    // If this is the first property for user, make it default
+    const existingProperties = await this.getUserProperties(property.userId);
+    const isDefault = existingProperties.length === 0 ? true : property.isDefault;
+    
+    const [created] = await db.insert(userProperties)
+      .values({ ...property, isDefault })
+      .returning();
+    return created;
+  }
+  
+  async updateUserProperty(id: number, property: Partial<InsertUserProperty>): Promise<UserProperty | undefined> {
+    const [updated] = await db.update(userProperties)
+      .set({ ...property, updatedAt: new Date() })
+      .where(eq(userProperties.id, id))
+      .returning();
+    return updated;
+  }
+  
+  async deleteUserProperty(id: number): Promise<boolean> {
+    const result = await db.delete(userProperties)
+      .where(eq(userProperties.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+  
+  // Booking payouts methods
+  async getBookingPayouts(userId: number, month?: number, year?: number): Promise<BookingPayout[]> {
+    let query = db.select()
+      .from(bookingPayouts)
+      .where(eq(bookingPayouts.userId, userId));
+    
+    if (month !== undefined && year !== undefined) {
+      query = db.select()
+        .from(bookingPayouts)
+        .where(and(
+          eq(bookingPayouts.userId, userId),
+          eq(bookingPayouts.month, month),
+          eq(bookingPayouts.year, year)
+        ));
+    }
+    
+    return query.orderBy(desc(bookingPayouts.checkIn));
+  }
+  
+  async getBookingPayoutsByProperty(propertyId: number, month?: number, year?: number): Promise<BookingPayout[]> {
+    let conditions = [eq(bookingPayouts.propertyId, propertyId)];
+    
+    if (month !== undefined && year !== undefined) {
+      conditions.push(eq(bookingPayouts.month, month));
+      conditions.push(eq(bookingPayouts.year, year));
+    }
+    
+    return db.select()
+      .from(bookingPayouts)
+      .where(and(...conditions))
+      .orderBy(desc(bookingPayouts.checkIn));
+  }
+  
+  async getBookingPayout(id: number): Promise<BookingPayout | undefined> {
+    const [payout] = await db.select()
+      .from(bookingPayouts)
+      .where(eq(bookingPayouts.id, id));
+    return payout;
+  }
+  
+  async getBookingPayoutByBookingId(bookingId: string): Promise<BookingPayout | undefined> {
+    const [payout] = await db.select()
+      .from(bookingPayouts)
+      .where(eq(bookingPayouts.bookingId, bookingId));
+    return payout;
+  }
+  
+  async createBookingPayout(payout: InsertBookingPayout): Promise<BookingPayout> {
+    const [created] = await db.insert(bookingPayouts)
+      .values(payout)
+      .returning();
+    return created;
+  }
+  
+  async updateBookingPayout(id: number, payout: Partial<InsertBookingPayout>): Promise<BookingPayout | undefined> {
+    const [updated] = await db.update(bookingPayouts)
+      .set({ ...payout, updatedAt: new Date() })
+      .where(eq(bookingPayouts.id, id))
+      .returning();
+    return updated;
+  }
+  
+  async deleteBookingPayout(id: number): Promise<boolean> {
+    const result = await db.delete(bookingPayouts)
+      .where(eq(bookingPayouts.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
   }
 }
 
