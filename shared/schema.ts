@@ -292,6 +292,45 @@ export const payouts = pgTable("payouts", {
   updatedAt: timestamp("updated_at").defaultNow(),
 });
 
+// User Properties - Multiple Beds24 properties per user
+export const userProperties = pgTable("user_properties", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  beds24PropId: text("beds24_prop_id").notNull(), // Beds24 property ID
+  name: varchar("name", { length: 255 }).notNull(), // Property name (e.g., "Hytte i Fjorden")
+  isDefault: boolean("is_default").default(false), // Default property for this user
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+// Booking Payouts - Stored calculated payouts with admin override capability
+export const bookingPayouts = pgTable("booking_payouts", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull().references(() => users.id),
+  propertyId: integer("property_id").references(() => userProperties.id),
+  bookingId: text("booking_id").notNull(), // External booking ID from Beds24
+  month: integer("month").notNull(), // 1-12
+  year: integer("year").notNull(),
+  guestName: text("guest_name"),
+  propertyName: text("property_name"),
+  checkIn: timestamp("check_in"),
+  checkOut: timestamp("check_out"),
+  nights: integer("nights").notNull(),
+  pricePerNight: decimal("price_per_night", { precision: 10, scale: 2 }).notNull(),
+  discountPercent: decimal("discount_percent", { precision: 5, scale: 2 }).notNull(),
+  calculatedAmount: decimal("calculated_amount", { precision: 10, scale: 2 }).notNull(), // System calculated
+  adminAmount: decimal("admin_amount", { precision: 10, scale: 2 }), // Admin override amount
+  isOverridden: boolean("is_overridden").default(false), // If true, system won't recalculate
+  currency: varchar("currency", { length: 3 }).notNull().default("NOK"),
+  status: varchar("status", { length: 50 }).default("pending"), // pending, confirmed, paid
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+  overriddenById: integer("overridden_by_id").references(() => users.id), // Which admin overrode it
+  overriddenAt: timestamp("overridden_at"),
+});
+
 // Account Number Change Log
 export const accountNumberLogs = pgTable("account_number_logs", {
   id: serial("id").primaryKey(),
@@ -564,6 +603,43 @@ export type InsertPriceRange = typeof priceRanges.$inferInsert;
 
 export type Payout = typeof payouts.$inferSelect;
 export type InsertPayout = typeof payouts.$inferInsert;
+
+export type UserProperty = typeof userProperties.$inferSelect;
+export type InsertUserProperty = typeof userProperties.$inferInsert;
+
+export type BookingPayout = typeof bookingPayouts.$inferSelect;
+export type InsertBookingPayout = typeof bookingPayouts.$inferInsert;
+
+// Insert schemas for new tables
+export const insertUserPropertySchema = z.object({
+  userId: z.number(),
+  beds24PropId: z.string().min(1, "Eiendoms-ID er påkrevd"),
+  name: z.string().min(1, "Navn er påkrevd"),
+  isDefault: z.boolean().optional(),
+  isActive: z.boolean().optional(),
+});
+
+export const insertBookingPayoutSchema = z.object({
+  userId: z.number(),
+  propertyId: z.number().optional(),
+  bookingId: z.string(),
+  month: z.number().min(1).max(12),
+  year: z.number().min(2020).max(2100),
+  guestName: z.string().optional(),
+  propertyName: z.string().optional(),
+  checkIn: z.date().optional(),
+  checkOut: z.date().optional(),
+  nights: z.number().min(1),
+  pricePerNight: z.string().or(z.number()).transform(val => String(val)),
+  discountPercent: z.string().or(z.number()).transform(val => String(val)),
+  calculatedAmount: z.string().or(z.number()).transform(val => String(val)),
+  adminAmount: z.string().or(z.number()).transform(val => String(val)).optional(),
+  isOverridden: z.boolean().optional(),
+  currency: z.string().default("NOK"),
+  status: z.string().optional(),
+  notes: z.string().optional(),
+  overriddenById: z.number().optional(),
+});
 
 // Schema for cases
 // Denne skjemadefinisjonen er flyttet og kombinert med hoveddefinisjonen lenger ned i filen
