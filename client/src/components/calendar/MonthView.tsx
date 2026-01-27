@@ -399,17 +399,17 @@ export default function MonthView({
                               if (isToday) return {};
                               
                               // Categorize events on this date
-                              const hasLocalEvents = eventsOnDate.some(e => {
+                              const hasLocalEvents = dayEvents.some(e => {
                                 const src = e.source as { type?: string } | null;
                                 return !src || !src.type || src.type !== 'beds24';
                               });
-                              const hasBeds24Bookings = eventsOnDate.some(e => {
+                              const hasBeds24Bookings = dayEvents.some(e => {
                                 const src = e.source as { type?: string; status?: string } | null;
                                 if (!src || src.type !== 'beds24') return false;
                                 const status = (src.status || '').toLowerCase();
                                 return !['black', 'blocked', 'owner', 'maintenance'].includes(status);
                               });
-                              const hasBeds24Blocks = eventsOnDate.some(e => {
+                              const hasBeds24Blocks = dayEvents.some(e => {
                                 const src = e.source as { type?: string; status?: string } | null;
                                 if (!src || src.type !== 'beds24') return false;
                                 const status = (src.status || '').toLowerCase();
