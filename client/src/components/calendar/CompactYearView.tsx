@@ -5,6 +5,40 @@ import { cn } from "@/lib/utils";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+// Fixed color scheme for date text:
+// Red = Local events (owner blocks from admin/user)
+// Green = Bookings from Beds24
+// Yellow = Blocks from Beds24
+function getDateTextStyle(events: Event[]): React.CSSProperties {
+  const hasLocalEvents = events.some(e => {
+    const src = e.source as { type?: string } | null;
+    return !src || !src.type || src.type !== 'beds24';
+  });
+  const hasBeds24Bookings = events.some(e => {
+    const src = e.source as { type?: string; status?: string } | null;
+    if (!src || src.type !== 'beds24') return false;
+    const status = (src.status || '').toLowerCase();
+    return !['black', 'blocked', 'owner', 'maintenance'].includes(status);
+  });
+  const hasBeds24Blocks = events.some(e => {
+    const src = e.source as { type?: string; status?: string } | null;
+    if (!src || src.type !== 'beds24') return false;
+    const status = (src.status || '').toLowerCase();
+    return ['black', 'blocked', 'owner', 'maintenance'].includes(status);
+  });
+  
+  if (hasLocalEvents && (hasBeds24Bookings || hasBeds24Blocks)) {
+    return { color: '#9333ea', fontWeight: 'bold' }; // Purple for mixed
+  } else if (hasLocalEvents) {
+    return { color: '#ef4444', fontWeight: 'bold' }; // Red for local
+  } else if (hasBeds24Bookings) {
+    return { color: '#16a34a', fontWeight: 'bold' }; // Green for bookings
+  } else if (hasBeds24Blocks) {
+    return { color: '#eab308', fontWeight: 'bold' }; // Yellow for blocks
+  }
+  return {};
+}
+
 interface CompactYearViewProps {
   currentDate: Date;
   events: Event[];
@@ -53,21 +87,34 @@ export default function CompactYearView({
     return getEventsForDate(date).length > 0;
   };
 
-  // Check if date has user events (rød farge)
-  const hasUserEvents = (date: Date) => {
+  // Check if date has local events (Red)
+  const hasLocalEvents = (date: Date) => {
     const dayEvents = getEventsForDate(date);
     return dayEvents.some(event => {
-      // User events have positive numeric IDs and no source property
-      return (typeof event.id === 'number' && event.id > 0 && !event.source);
+      const src = event.source as { type?: string } | null;
+      return !src || !src.type || src.type !== 'beds24';
     });
   };
 
-  // Check if date has iCal events (blå farge)  
-  const hasIcalEvents = (date: Date) => {
+  // Check if date has Beds24 bookings (Green)
+  const hasBeds24Bookings = (date: Date) => {
     const dayEvents = getEventsForDate(date);
     return dayEvents.some(event => {
-      // iCal events have negative IDs or source property
-      return (event.source || (typeof event.id === 'number' && event.id < 0));
+      const src = event.source as { type?: string; status?: string } | null;
+      if (!src || src.type !== 'beds24') return false;
+      const status = (src.status || '').toLowerCase();
+      return !['black', 'blocked', 'owner', 'maintenance'].includes(status);
+    });
+  };
+  
+  // Check if date has Beds24 blocks (Yellow)
+  const hasBeds24Blocks = (date: Date) => {
+    const dayEvents = getEventsForDate(date);
+    return dayEvents.some(event => {
+      const src = event.source as { type?: string; status?: string } | null;
+      if (!src || src.type !== 'beds24') return false;
+      const status = (src.status || '').toLowerCase();
+      return ['black', 'blocked', 'owner', 'maintenance'].includes(status);
     });
   };
 
@@ -197,8 +244,9 @@ export default function CompactYearView({
                       const isToday = isSameDay(date, new Date());
                       const isSelected = isSameDay(date, currentDate);
                       const hasEventsOnDate = hasEvents(date);
-                      const hasUserEventsOnDate = hasUserEvents(date);
-                      const hasIcalEventsOnDate = hasIcalEvents(date);
+                      const hasLocalEventsOnDate = hasLocalEvents(date);
+                      const hasBeds24BookingsOnDate = hasBeds24Bookings(date);
+                      const hasBeds24BlocksOnDate = hasBeds24Blocks(date);
                       const isMarkedDate = isMarked(date);
                       
                       // Determine background color based on event types
@@ -212,25 +260,30 @@ export default function CompactYearView({
                       } else if (isSelected) {
                         bgColor = "bg-blue-100";
                         textColor = "text-blue-800 font-semibold";
-                      } else if (hasUserEventsOnDate && hasIcalEventsOnDate) {
-                        // Both user and iCal events - purple text
+                      } else if (hasLocalEventsOnDate && (hasBeds24BookingsOnDate || hasBeds24BlocksOnDate)) {
+                        // Mixed events - purple text
                         bgColor = "";
                         textColor = "text-purple-600 font-bold";
-                        tooltipText += " - Bruker og booking hendelser";
-                      } else if (hasUserEventsOnDate) {
-                        // Only user events - red text (very visible)
+                        tooltipText += " - Blandet hendelser";
+                      } else if (hasLocalEventsOnDate) {
+                        // Local events (owner blocks) - red text
                         bgColor = "";
                         textColor = "text-red-600 font-bold";
-                        tooltipText += " - Bruker hendelser";
-                      } else if (hasIcalEventsOnDate) {
-                        // Only iCal events - rosa text (very visible)
-                        bgColor = "";
-                        textColor = "text-pink-600 font-bold";
-                        tooltipText += " - Booking hendelser";
-                      } else if (isMarkedDate) {
-                        // Only marked day - green text
+                        tooltipText += " - Eiersperre";
+                      } else if (hasBeds24BookingsOnDate) {
+                        // Beds24 bookings - green text
                         bgColor = "";
                         textColor = "text-green-600 font-bold";
+                        tooltipText += " - Booking";
+                      } else if (hasBeds24BlocksOnDate) {
+                        // Beds24 blocks - yellow text
+                        bgColor = "";
+                        textColor = "text-yellow-600 font-bold";
+                        tooltipText += " - Blokering fra Beds24";
+                      } else if (isMarkedDate) {
+                        // Only marked day
+                        bgColor = "";
+                        textColor = "text-emerald-600 font-bold";
                         tooltipText += " - Markert dag";
                       } else {
                         // No events - default
@@ -240,14 +293,16 @@ export default function CompactYearView({
                       
                       // Determine inline style for text color to ensure visibility
                       let textStyle = {};
-                      if (hasUserEventsOnDate && hasIcalEventsOnDate) {
-                        textStyle = { color: '#9333ea', fontWeight: 'bold' }; // Purple
-                      } else if (hasUserEventsOnDate) {
-                        textStyle = { color: '#dc2626', fontWeight: 'bold' }; // Red
-                      } else if (hasIcalEventsOnDate) {
-                        textStyle = { color: '#ec4899', fontWeight: 'bold' }; // Rosa for iCal
+                      if (hasLocalEventsOnDate && (hasBeds24BookingsOnDate || hasBeds24BlocksOnDate)) {
+                        textStyle = { color: '#9333ea', fontWeight: 'bold' }; // Purple for mixed
+                      } else if (hasLocalEventsOnDate) {
+                        textStyle = { color: '#ef4444', fontWeight: 'bold' }; // Red for local
+                      } else if (hasBeds24BookingsOnDate) {
+                        textStyle = { color: '#16a34a', fontWeight: 'bold' }; // Green for bookings
+                      } else if (hasBeds24BlocksOnDate) {
+                        textStyle = { color: '#eab308', fontWeight: 'bold' }; // Yellow for blocks
                       } else if (isMarkedDate) {
-                        textStyle = { color: '#059669', fontWeight: 'bold' }; // Green
+                        textStyle = { color: '#059669', fontWeight: 'bold' }; // Emerald
                       }
 
                       return (

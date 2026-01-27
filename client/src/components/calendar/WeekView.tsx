@@ -4,6 +4,24 @@ import { Event } from "@shared/schema";
 import { cn } from "@/lib/utils";
 import { useMediaQuery } from "../../hooks/use-media-query";
 
+// Fixed color scheme:
+// Red (#ef4444) = Local events (owner blocks from admin/user)
+// Green (#16a34a) = Bookings from Beds24 (status: new, confirmed, etc.)
+// Yellow (#eab308) = Blocks from Beds24 (status: black, blocked, owner)
+function getEventColor(event: Event): string {
+  const source = event.source as { type?: string; status?: string } | null;
+  
+  if (source && typeof source === 'object' && source.type === 'beds24') {
+    const status = (source.status || '').toLowerCase();
+    if (status === 'black' || status === 'blocked' || status === 'owner' || status === 'maintenance') {
+      return "#eab308"; // Yellow
+    }
+    return "#16a34a"; // Green
+  }
+  
+  return "#ef4444"; // Red
+}
+
 interface WeekViewProps {
   currentDate: Date;
   events: Event[];
@@ -236,7 +254,7 @@ export default function WeekView({ currentDate, events, onDateClick, onEventClic
                           isMobile ? "text-[8px]" : "text-xs"
                         )}
                         style={{ 
-                          backgroundColor: (event.color as string) || "#ef4444" 
+                          backgroundColor: getEventColor(event)
                         }}
                         onClick={(e) => {
                           e.stopPropagation();

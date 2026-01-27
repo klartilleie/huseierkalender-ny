@@ -1,210 +1,60 @@
 # Smart Hjem Calendar Application
 
 ## Overview
+The Smart Hjem Calendar Application is a full-stack TypeScript application designed for Smart Hjem AS, functioning as both a booking calendar and a customer service platform. Its primary purpose is to streamline event management, user authentication, customer support, and financial payout tracking. The application aims to provide a comprehensive solution for managing properties, bookings, and customer interactions, enhancing operational efficiency and customer satisfaction.
 
-This is a comprehensive calendar and customer service management application for Smart Hjem AS, built with a full-stack TypeScript architecture. The application serves as both a booking calendar system and customer support platform, designed to handle user authentication, event management, iCal feed integration, and support ticket management.
+## User Preferences
+Preferred communication style: Simple, everyday language.
 
 ## System Architecture
 
-### Frontend Architecture
-- **Framework**: React 18 with TypeScript
-- **Routing**: Wouter for client-side routing
-- **State Management**: TanStack Query (React Query) for server state management
-- **UI Framework**: Shadcn/ui components built on Radix UI primitives
-- **Styling**: Tailwind CSS with custom design tokens
-- **Build Tool**: Vite for development and production builds
-- **PWA Support**: Service worker integration for offline capabilities
+### Core Technologies
+- **Frontend**: React 18 with TypeScript, Wouter for routing, TanStack Query for state management, Shadcn/ui (Radix UI) for components, Tailwind CSS for styling, Vite for tooling, PWA support.
+- **Backend**: Node.js with TypeScript (ES modules), Express.js for API, Passport.js for authentication, PostgreSQL with Drizzle ORM, Neon serverless PostgreSQL for database, PostgreSQL-backed session storage.
 
-### Backend Architecture
-- **Runtime**: Node.js with TypeScript (ES modules)
-- **Framework**: Express.js for API server
-- **Authentication**: Passport.js with local strategy and express-session
-- **Database**: PostgreSQL with Drizzle ORM
-- **Database Provider**: Neon serverless PostgreSQL
-- **Session Storage**: PostgreSQL-backed session store
+### Key Design Principles
+- **Monorepo**: Shared schema and types for client and server.
+- **Type Safety**: End-to-end TypeScript with Zod validation.
+- **Responsive Design**: Mobile-first approach.
+- **Secure Authentication**: Scrypt hashing, PostgreSQL-backed sessions, role-based access (admin, mini-admin).
+- **Comprehensive Calendar**: Month, week, day, year views, event categorization, color coding, and special day marking.
+- **Customer Support**: Full CRUD for tickets, real-time messaging, file attachments, status and priority management.
+- **Payout Management**: Monthly payout tracking, status management, yearly summaries, admin overview and user-specific dashboards.
+- **Admin Agreements**: Meeting scheduling, status tracking, bi-directional notes (public/private), notifications, and discussion history.
+- **Booking Payout Calculator**: Calculates payouts from Beds24 bookings, with admin override capabilities and property-specific filtering.
+- **User Properties**: Supports multiple Beds24 properties per user, managed by admin.
 
-### Key Design Decisions
-1. **Monorepo Structure**: Shared schema and types between client and server
-2. **Type Safety**: End-to-end TypeScript with Zod validation schemas
-3. **Server-side Rendering**: Vite middleware integration for development
-4. **Responsive Design**: Mobile-first approach with device preference management
+### UI/UX Decisions
+- Fixed color scheme for events: Red for local owner blocks, Green for Beds24 bookings, Yellow for Beds24 blocks.
+- Accessible UI components built on Radix UI primitives.
 
-## Key Components
-
-### Authentication System
-- **Strategy**: Local username/password authentication
-- **Password Security**: Scrypt-based password hashing with salt
-- **Session Management**: PostgreSQL-backed sessions with secure cookies
-- **Admin Protection**: Route-level admin privilege checking
-- **Password Reset**: Token-based password reset functionality
-- **Mini Admin Role**: Read-only admin access for viewing users and data without editing permissions
-
-### Calendar Management
-- **Views**: Month, week, day, and compact year views
-- **Event Types**: Regular events, all-day events, and collaborative events
-- **iCal Integration**: Import/export functionality with automatic synchronization
-- **Marked Days**: Special day marking system for holidays, vacations, etc.
-- **Color Coding**: Customizable event colors and categories
-
-### Customer Support System
-- **Ticket Management**: Full CRUD operations for support tickets
-- **Case Messaging**: Real-time messaging between users and admins
-- **File Attachments**: Support for file uploads in ticket communications
-- **Status Tracking**: Comprehensive ticket status and priority management
-- **Admin Assignment**: Ticket routing and assignment capabilities
-
-### Payout Management System
-- **User Payouts**: Monthly payout tracking for each user
-- **Status Management**: Track payment status (paid/pending/cancelled)
-- **Admin Overview**: Admin can view ALL users' payouts or filter by specific user
-- **User Dashboard**: Personal payout view for regular users (only their own data)
-- **Yearly Summaries**: Annual overview with monthly breakdown and totals
-- **Data Isolation**: Secure data separation - regular users see only their own payouts
-- **Admin Features**: Full control to create, edit, and delete payouts for any user
-
-### Admin Agreements System
-- **Meeting Management**: Admins can create and schedule meetings/agreements with users
-- **Status Tracking**: Track agreement status (scheduled/completed/cancelled)
-- **Meeting Details**: Title, description, date/time, and location for each agreement
-- **Notes System**: Bi-directional note-taking with both public and private notes
-- **Private Notes**: Admin-only notes that users cannot see
-- **User View**: Users can view their scheduled meetings and discussion notes
-- **Notifications**: Automatic notifications when agreements are created/updated
-- **Discussion History**: Complete audit trail of meeting notes and discussions
-
-### External Integrations
-- **iCal Feeds**: Support for Google Calendar, Outlook, and other iCal sources
-  - **Sync Frequency**: Automatic sync every 1 minute for fast updates
-  - **Active Sync Window**: 30 days backward to 360 days forward (updated January 5, 2026)
-  - **Event Retention**: Keeps events from 5 years ago to 5 years in the future
-  - **Data Preservation Policy**: MINIMUM 3 YEARS - All iCal events are preserved for at least 3 years (updated August 18, 2025)
-  - **Historical Preservation**: Events older than 3 years are never deleted, even if removed from source feed
-  - **Smart Sync**: Only updates changed events, adds new events, and removes recent deleted events
-  - **Rate Limit Handling**: Automatic retry with exponential backoff for 503 errors
-  - **beds24.com Integration**: Special handling for property booking feeds
-    - **Delta Sync**: Only fetches bookings modified since last sync (modifiedSince parameter)
-    - **Optimized Window**: 30 days backward to 360 days forward
-    - **CSV Protection**: CSV-imported events are protected from being overwritten
-    - **Sync Frequency**: Every 1 minute
-    - **Safety Buffer**: 10 minutes overlap on delta sync to ensure no events are missed
-- **Email Notifications**: SMTP-based email system for notifications
-- **Translation Services**: Multi-language support with OpenAI integration
-- **WebSocket Support**: Real-time notifications and updates
-
-## Data Flow
-
-### Authentication Flow
-1. User submits credentials via login form
-2. Server validates against hashed passwords in database
-3. Session created and stored in PostgreSQL
-4. Client receives user object and redirects to dashboard
-
-### Calendar Event Flow
-1. User creates/edits event through modal forms
-2. Client validates data using Zod schemas
-3. Server processes and stores in events table
-4. Real-time updates sent via WebSocket to collaborators
-5. iCal export generation for external calendar sync
-
-### Support Ticket Flow
-1. User creates ticket with category and priority
-2. System generates unique case number
-3. Admin receives notification and can assign ticket
-4. Bi-directional messaging system with read receipts
-5. Ticket lifecycle management with status updates
+### Feature Specifications
+- **Authentication**: Local strategy, secure password hashing, PostgreSQL sessions, admin and mini-admin roles, password reset.
+- **Calendar**: Flexible views, event types (regular, all-day, collaborative), color coding.
+- **Customer Support**: Ticket creation, messaging, attachments, status/priority, admin assignment.
+- **Payouts**: Monthly tracking per user, status (paid/pending/cancelled), yearly summaries, admin/user dashboards.
+- **Agreements**: Admin-scheduled meetings, status tracking, detailed notes (public/private), notifications.
+- **Beds24 Integration**: Bidirectional sync for bookings and blocks, delta sync, optimized sync window (-30 to +360 days), 1-minute sync frequency, protection for CSV-imported events, automatic email removal from event descriptions.
+- **Email Notifications**: SMTP-based, calendar event notifications (create, update, delete) with admin/user toggles.
+- **Real-time Updates**: WebSocket support for instant notifications.
 
 ## External Dependencies
 
-### Core Dependencies
-- **@neondatabase/serverless**: PostgreSQL connection and query execution
-- **drizzle-orm**: Type-safe database operations and migrations
-- **@tanstack/react-query**: Server state management and caching
-- **passport**: Authentication middleware and strategies
-- **@radix-ui/***: Accessible UI component primitives
-- **date-fns**: Date manipulation and formatting utilities
+### Core Libraries
+- `@neondatabase/serverless`: PostgreSQL connection.
+- `drizzle-orm`: Type-safe ORM.
+- `@tanstack/react-query`: Server state management.
+- `passport`: Authentication middleware.
+- `@radix-ui/*`: UI primitives.
+- `date-fns`: Date utilities.
 
 ### Integration Services
-- **node-ical**: iCal feed parsing and generation
-- **nodemailer**: Email sending capabilities
-- **ws**: WebSocket server for real-time features
-- **axios**: HTTP client for external API calls
+- `nodemailer`: Email sending.
+- `ws`: WebSocket server.
+- `axios`: HTTP client for external APIs.
 
-### Development Tools
-- **tsx**: TypeScript execution for development
-- **esbuild**: Production build bundling
-- **tailwindcss**: Utility-first CSS framework
-- **vite**: Development server and build tool
-
-## Deployment Strategy
-
-### Environment Configuration
-- **Development**: Local PostgreSQL with Vite dev server
-- **Production**: Neon serverless PostgreSQL with Node.js server
-- **Build Process**: Separate client and server builds with esbuild
-- **Asset Handling**: Vite handles client assets, Express serves static files
-
-### Database Management
-- **Schema Migrations**: Drizzle Kit for database schema management
-- **Connection Pooling**: Neon serverless connection pooling
-- **Backup System**: Automated backup creation and restoration
-- **Data Seeding**: Scripts for creating default admin users
-
-### Security Considerations
-- **HTTPS Enforcement**: Required for production deployment
-- **CSRF Protection**: Session-based CSRF tokens
-- **Input Validation**: Comprehensive Zod schema validation
-- **SQL Injection Prevention**: Parameterized queries via Drizzle ORM
-
-## Changelog
-- June 15, 2025. Initial setup
-- June 15, 2025. Added admin color override functionality for event management
-- June 15, 2025. Implemented force refresh functionality for iCal feeds to solve stale event issues
-- June 15, 2025. Completed calendar cleanup for user Just - deleted 13 stale events and resynced with fresh Beds24 data
-- August 18, 2025. Updated iCal data retention policy to preserve minimum 3 years of calendar events for all users
-- June 17, 2025. Fixed iCal export filtering to prevent echoing external feed events back to source calendars
-- June 26, 2025. Implemented comprehensive cache control to prevent white screen issues in browsers
-- June 26, 2025. Added automatic cache clearing on startup and enhanced error handling
-- June 26, 2025. Fixed server startup port configuration and improved web accessibility
-- June 30, 2025. Implemented comprehensive white screen prevention with emergency fallback content that displays immediately
-- June 30, 2025. Added multiple timeout mechanisms and user-controlled fallback options for authentication failures
-- July 15, 2025. Fixed admin event deletion to properly identify iCal events using source.type instead of ID format
-- July 15, 2025. Implemented fixed color scheme: iCal events are always pink (#ec4899) and non-editable, local events are red (#ef4444) by default and can be changed by admin
-- July 17, 2025. Solved massive duplicate issue: removed 28,194 duplicate iCal events caused by faulty deleteEventsBySource function
-- July 17, 2025. Fixed root cause of duplicates by repairing JSON-based iCal feed synchronization logic
-- July 17, 2025. Upgraded "Fjern duplikater" admin button to use efficient SQL instead of slow JavaScript loops
-- July 17, 2025. Confirmed iCal events cannot be deleted by admin as they auto-sync from external Beds24 sources every minute
-- July 18, 2025. Cleaned Pascal Sbrzesny's calendar - removed all 392 old iCal events as he doesn't have active iCal link yet
-- August 17, 2025. Added phoneNumber and accountNumber fields to user profiles for SMS notifications and payout management
-- August 17, 2025. Fixed "Årsoverviskt" typo to "Årsoversikt" in payout management
-- August 17, 2025. Updated payout statuses: removed "Kansellert", kept "Venter", "Betalt", "Utbetaling sendt", "Motregner"
-- August 17, 2025. Implemented support for negative balances in payout system with appropriate color coding
-- August 18, 2025. Implemented mini admin role with read-only access to view all users and data without editing permissions
-- August 18, 2025. Fixed iCal sync issues: Extended event retention from 2 to 5 years, reduced sync frequency from 1 min to 30 min to avoid API rate limits, added retry logic for 503 errors
-- August 18, 2025. Implemented smart iCal sync that preserves historical events older than 3 months to prevent data loss when events are removed from source feeds
-- September 13, 2025. Created protected CSV import functionality for Geir Stølen's calendar (user ID 14) with admin-only endpoint /api/import-geir-csv
-- September 13, 2025. Added csvProtected flag protection to both iCal scheduler and Beds24 API to prevent overwriting of CSV-imported events
-- September 13, 2025. Successfully imported 9 bookings for "Flott Feriehus i Øksnevik" property from Geir Stølen's CSV file with proper color coding (Blue for New, Green for Confirmed, Orange for Owner blocks)
-- September 22, 2025. Optimized API synchronization: Implemented delta sync with modifiedSince parameter, reduced time window to -30/+90 days for better performance, added automatic email removal from all event descriptions for privacy
-- January 3, 2026. Implemented standard calendar notification email system with "Huseierkalenderen" branding, sends automatic emails when calendar events are created, updated, or deleted
-- January 3, 2026. Added automatic copy of all emails to sender (kalender@klartilleie.no) with information about who received the email
-- January 3, 2026. Added admin toggle in System Settings to enable/disable email notifications to users
-- January 3, 2026. Added per-user email notification setting - admin can enable/disable emails for individual users in user edit dialog
-- January 5, 2026. Extended sync window from 90 to 360 days forward for both iCal and Beds24 to capture bookings up to one year ahead
-- January 5, 2026. Increased sync frequency from 30 minutes to 1 minute for faster calendar updates
-- January 6, 2026. Implemented bidirectional Beds24 API sync: local events now automatically create blocks in Beds24
-- January 6, 2026. Added Beds24ApiClient import to routes.ts for event synchronization (create, update, delete)
-- January 6, 2026. Updated iCal export to filter out 'local_with_beds24' events to prevent circular synchronization
-- January 6, 2026. Added same-day handling for Beds24 blocks (departure adjusted to day after arrival when needed)
-- January 18, 2026. Implemented booking payout calculator with API endpoint for calculating payouts from Beds24 bookings (price × nights × discount)
-- January 18, 2026. Added BookingPayoutCalculator component with tabbed interface in PayoutsManagement showing itemized booking payouts
-- January 18, 2026. Implemented denylist-based status filtering to exclude non-revenue bookings (cancelled, black, blocked) from payout calculations
-- January 20, 2026. Added user_properties table for multiple Beds24 properties per user
-- January 20, 2026. Added booking_payouts table to store calculated payouts with admin override capability
-- January 20, 2026. Implemented UserPropertiesManager component for admin to add/edit/delete user properties
-- January 20, 2026. Added property selector dropdown in BookingPayoutCalculator for filtering by property
-- January 20, 2026. Added admin override functionality - when admin edits a payout amount, system preserves it and won't recalculate
-- January 20, 2026. Added read-only protection for mini-admin role in payout calculator (can view but not edit)
-
-## User Preferences
-
-Preferred communication style: Simple, everyday language.
+### Development & Tooling
+- `tsx`: TypeScript execution.
+- `esbuild`: Production bundling.
+- `tailwindcss`: CSS framework.
+- `vite`: Development server and build tool.

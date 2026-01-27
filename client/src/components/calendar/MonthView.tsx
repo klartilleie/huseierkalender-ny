@@ -7,6 +7,42 @@ import { useMediaQuery } from "../../hooks/use-media-query";
 import { useDevicePreference } from "@/hooks/use-device-preference";
 import { useToast } from "@/hooks/use-toast";
 
+// Fixed color scheme:
+// Red (#ef4444) = Local events (owner blocks from admin/user)
+// Green (#16a34a) = Bookings from Beds24 (status: new, confirmed, etc.)
+// Yellow (#eab308) = Blocks from Beds24 (status: black, blocked, owner)
+function getEventColor(event: Event): string {
+  const source = event.source as { type?: string; status?: string } | null;
+  
+  // Check if this is a Beds24 event
+  if (source && typeof source === 'object' && source.type === 'beds24') {
+    const status = (source.status || '').toLowerCase();
+    // Blocks/blackouts from Beds24 = Yellow
+    if (status === 'black' || status === 'blocked' || status === 'owner' || status === 'maintenance') {
+      return "#eab308"; // Yellow
+    }
+    // Bookings from Beds24 = Green
+    return "#16a34a"; // Green
+  }
+  
+  // Local events (owner blocks) = Red
+  return "#ef4444"; // Red
+}
+
+// Get text color for date based on event types
+function getDateTextStyle(hasLocalEvents: boolean, hasBeds24Bookings: boolean, hasBeds24Blocks: boolean): React.CSSProperties {
+  if (hasLocalEvents && (hasBeds24Bookings || hasBeds24Blocks)) {
+    return { color: '#9333ea', fontWeight: 'bold' }; // Purple for mixed
+  } else if (hasLocalEvents) {
+    return { color: '#ef4444', fontWeight: 'bold' }; // Red for local
+  } else if (hasBeds24Bookings) {
+    return { color: '#16a34a', fontWeight: 'bold' }; // Green for bookings
+  } else if (hasBeds24Blocks) {
+    return { color: '#eab308', fontWeight: 'bold' }; // Yellow for blocks
+  }
+  return {};
+}
+
 interface MonthViewProps {
   currentDate: Date;
   events: Event[];
@@ -362,14 +398,25 @@ export default function MonthView({
                               if (!isCurrentMonth) return {};
                               if (isToday) return {};
                               
-                              if (hasUserEventsOnDate && hasIcalEventsOnDate) {
-                                return { color: '#9333ea', fontWeight: 'bold' }; // Purple for both
-                              } else if (hasUserEventsOnDate) {
-                                return { color: '#dc2626', fontWeight: 'bold' }; // Red for user events
-                              } else if (hasIcalEventsOnDate) {
-                                return { color: '#ec4899', fontWeight: 'bold' }; // Rosa for iCal events
-                              }
-                              return {};
+                              // Categorize events on this date
+                              const hasLocalEvents = eventsOnDate.some(e => {
+                                const src = e.source as { type?: string } | null;
+                                return !src || !src.type || src.type !== 'beds24';
+                              });
+                              const hasBeds24Bookings = eventsOnDate.some(e => {
+                                const src = e.source as { type?: string; status?: string } | null;
+                                if (!src || src.type !== 'beds24') return false;
+                                const status = (src.status || '').toLowerCase();
+                                return !['black', 'blocked', 'owner', 'maintenance'].includes(status);
+                              });
+                              const hasBeds24Blocks = eventsOnDate.some(e => {
+                                const src = e.source as { type?: string; status?: string } | null;
+                                if (!src || src.type !== 'beds24') return false;
+                                const status = (src.status || '').toLowerCase();
+                                return ['black', 'blocked', 'owner', 'maintenance'].includes(status);
+                              });
+                              
+                              return getDateTextStyle(hasLocalEvents, hasBeds24Bookings, hasBeds24Blocks);
                             })()}
                             >
                               {format(day, 'd')}
@@ -410,20 +457,7 @@ export default function MonthView({
                                     isMobile ? "text-[6px]" : "text-[10px]"
                                   )} 
                                   style={{ 
-                                    backgroundColor: (() => {
-                                      // Check if this is an iCal event
-                                      const isIcalEvent = event.source && 
-                                                         typeof event.source === 'object' && 
-                                                         'type' in event.source && 
-                                                         event.source.type === 'ical';
-                                      
-                                      if (isIcalEvent) {
-                                        return "#ec4899"; // Rosa for iCal-hendelser (kan ikke endres)
-                                      }
-                                      
-                                      // For lokale hendelser: admin override eller standard rød
-                                      return (event.adminColorOverride || event.color || "#ef4444") as string;
-                                    })()
+                                    backgroundColor: getEventColor(event)
                                   }}
                                 >
                                   {/* Event content - title and time formatted appropriately */}
@@ -449,37 +483,14 @@ export default function MonthView({
                                   })()}
                                 </div>
                                 
-                                {/* Admin controls */}
+                                {/* Admin controls - color picker removed, colors are now fixed */}
                                 {adminMode && (
                                   <div className="ml-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    {/* Color picker for admin - only show for local events (not iCal) */}
-                                    {onChangeEventColor && event.id && (() => {
-                                      const isIcalEvent = event.source && 
-                                                         typeof event.source === 'object' && 
-                                                         'type' in event.source && 
-                                                         event.source.type === 'ical';
-                                      return !isIcalEvent; // Only show for non-iCal events
-                                    })() && (
-                                      <input
-                                        type="color"
-                                        value={event.adminColorOverride || event.color || "#ef4444"}
-                                        onChange={(e) => {
-                                          e.stopPropagation();
-                                          // Convert string IDs (like "ical-123") to numbers for the API
-                                          const numericId = typeof event.id === 'string' && event.id.startsWith('ical-') 
-                                            ? parseInt(event.id.replace('ical-', ''))
-                                            : event.id as number;
-                                          onChangeEventColor(numericId, e.target.value);
-                                        }}
-                                        className={cn(
-                                          "border-none cursor-pointer rounded-sm",
-                                          isMobile ? "w-3 h-3" : "w-4 h-4"
-                                        )}
-                                        title="Endre farge"
-                                      />
-                                    )}
                                     {/* Delete button for user events only */}
-                                    {onDeleteEvent && !isIcalEvent && (
+                                    {onDeleteEvent && (() => {
+                                      const src = event.source as { type?: string } | null;
+                                      return !src || src.type !== 'beds24';
+                                    })() && (
                                       <button
                                         className={cn(
                                           "bg-red-600 hover:bg-red-700 text-white rounded-sm",
