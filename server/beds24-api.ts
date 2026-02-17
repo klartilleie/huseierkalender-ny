@@ -385,6 +385,109 @@ export class Beds24ApiClient {
   }
 
   /**
+   * Fetch calendar blackout/override data from Beds24 inventory API
+   * Blackouts in Beds24 are set via inventory/rooms/calendar, not via bookings
+   */
+  async fetchCalendarBlackouts(fromDate: Date, toDate: Date): Promise<Array<{from: string, to: string, roomId: number}>> {
+    if (!this.accessToken || !this.config?.propId) {
+      return [];
+    }
+
+    try {
+      const fromStr = fromDate.toISOString().split('T')[0];
+      const toStr = toDate.toISOString().split('T')[0];
+      
+      const response = await this.v2Instance.get('/inventory/rooms/calendar', {
+        headers: { 'token': this.accessToken },
+        params: {
+          propertyId: this.config.propId,
+          startDate: fromStr,
+          endDate: toStr
+        }
+      });
+
+      console.log(`Beds24 inventory/calendar response status: ${response.status}`);
+      console.log(`Inventory response preview:`, JSON.stringify(response.data).substring(0, 1000));
+      
+      let rooms: any[] = [];
+      if (response.data?.data && Array.isArray(response.data.data)) {
+        rooms = response.data.data;
+      } else if (Array.isArray(response.data)) {
+        rooms = response.data;
+      }
+      
+      console.log(`Parsed ${rooms.length} rooms from inventory response`);
+      if (rooms.length > 0) {
+        const firstRoom = rooms[0];
+        console.log(`First room keys:`, Object.keys(firstRoom));
+        const calField = firstRoom.calendar || firstRoom.dates || firstRoom.days || [];
+        if (Array.isArray(calField) && calField.length > 0) {
+          console.log(`First calendar entry:`, JSON.stringify(calField[0]));
+          console.log(`Calendar entries count:`, calField.length);
+        } else if (typeof calField === 'object' && !Array.isArray(calField)) {
+          console.log(`Calendar is object with keys:`, Object.keys(calField).slice(0, 10));
+        }
+      }
+
+      const blackoutPeriods: Array<{from: string, to: string, roomId: number}> = [];
+
+      for (const room of rooms) {
+        const roomId = room.roomId || room.id;
+        const calendar = room.calendar || room.dates || [];
+        
+        if (!Array.isArray(calendar)) continue;
+
+        let currentBlackout: {from: string, to: string, roomId: number} | null = null;
+
+        for (const day of calendar) {
+          const date = day.date || day.from;
+          const override = (day.override || '').toLowerCase();
+          const isBlackout = override === 'blackout' || override === 'black';
+
+          if (isBlackout && date) {
+            if (!currentBlackout) {
+              currentBlackout = { from: date, to: date, roomId };
+            } else {
+              currentBlackout.to = date;
+            }
+          } else {
+            if (currentBlackout) {
+              const endDate = new Date(currentBlackout.to);
+              endDate.setDate(endDate.getDate() + 1);
+              currentBlackout.to = endDate.toISOString().split('T')[0];
+              blackoutPeriods.push(currentBlackout);
+              currentBlackout = null;
+            }
+          }
+        }
+
+        if (currentBlackout) {
+          const endDate = new Date(currentBlackout.to);
+          endDate.setDate(endDate.getDate() + 1);
+          currentBlackout.to = endDate.toISOString().split('T')[0];
+          blackoutPeriods.push(currentBlackout);
+        }
+      }
+
+      console.log(`Found ${blackoutPeriods.length} blackout periods from Beds24 inventory for user ${this.userId}`);
+      return blackoutPeriods;
+    } catch (error: any) {
+      if (error.response?.status === 401 && this.refreshToken) {
+        const refreshed = await this.refreshAccessToken();
+        if (refreshed) {
+          return this.fetchCalendarBlackouts(fromDate, toDate);
+        }
+      }
+      if (error.response?.status === 403) {
+        console.log(`Beds24 inventory API access denied for user ${this.userId} - may need read/inventory scope`);
+      } else {
+        console.error(`Failed to fetch Beds24 calendar blackouts for user ${this.userId}:`, error.response?.data || error.message);
+      }
+      return [];
+    }
+  }
+
+  /**
    * Convert Beds24 booking to calendar event
    */
   convertBookingToEvent(booking: any): Partial<Event> | null {
@@ -1027,6 +1130,76 @@ export class Beds24ApiClient {
             synced++;
           }
         }
+      }
+
+      // Sync blackout/override periods from Beds24 inventory API
+      try {
+        const blackoutPeriods = await this.fetchCalendarBlackouts(fromDate, toDate);
+        
+        if (blackoutPeriods.length > 0) {
+          console.log(`Processing ${blackoutPeriods.length} blackout periods for user ${this.userId}`);
+          
+          // Get existing blackout events for this user
+          const existingBlackouts = existingEvents.filter(e => {
+            if (e.source && typeof e.source === 'object' && 'type' in e.source && 'status' in e.source) {
+              return e.source.type === 'beds24' && (e.source.status === 'blackout' || e.source.status === 'black');
+            }
+            return false;
+          });
+          
+          const existingBlackoutKeys = new Set(existingBlackouts.map(e => {
+            const start = new Date(e.startTime).toISOString().split('T')[0];
+            const end = new Date(e.endTime).toISOString().split('T')[0];
+            return `${start}_${end}`;
+          }));
+          
+          const newBlackoutKeys = new Set(blackoutPeriods.map(b => `${b.from}_${b.to}`));
+
+          for (const blackout of blackoutPeriods) {
+            const key = `${blackout.from}_${blackout.to}`;
+            
+            if (!existingBlackoutKeys.has(key)) {
+              const startDate = new Date(blackout.from + 'T14:00:00');
+              const endDate = new Date(blackout.to + 'T11:00:00');
+              
+              const blackoutEvent: Partial<Event> = {
+                title: 'Blackout',
+                description: 'Blokering fra Beds24 (Override)',
+                startTime: startDate,
+                endTime: endDate,
+                color: '#eab308',
+                allDay: false,
+                source: {
+                  type: 'beds24',
+                  status: 'blackout',
+                  uid: `beds24-blackout-${blackout.from}-${blackout.to}-${blackout.roomId}`,
+                  roomId: String(blackout.roomId),
+                  propertyId: this.config!.propId
+                }
+              };
+              
+              await storage.createEvent(this.userId, blackoutEvent as any);
+              synced++;
+              console.log(`Created blackout event: ${blackout.from} to ${blackout.to}`);
+            }
+          }
+          
+          // Remove blackout events that no longer exist in Beds24
+          for (const existingBlackout of existingBlackouts) {
+            const start = new Date(existingBlackout.startTime).toISOString().split('T')[0];
+            const end = new Date(existingBlackout.endTime).toISOString().split('T')[0];
+            const key = `${start}_${end}`;
+            
+            if (!newBlackoutKeys.has(key)) {
+              if (!existingBlackout.csvProtected) {
+                console.log(`Deleting removed blackout: ${start} to ${end}`);
+                await storage.deleteEvent(existingBlackout.id);
+              }
+            }
+          }
+        }
+      } catch (blackoutError) {
+        console.error(`Failed to sync blackouts for user ${this.userId}:`, blackoutError);
       }
 
       // Delete events that no longer exist in Beds24 API
