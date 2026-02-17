@@ -1062,6 +1062,7 @@ export class Beds24ApiClient {
       let synced = 0;
       let updated = 0;
       const processedIds = new Set<string>();
+      const skippedOwnerBlockDateRanges: Array<{start: string, end: string}> = [];
 
       // Process each booking
       for (const booking of bookings) {
@@ -1099,6 +1100,12 @@ export class Beds24ApiClient {
           (bookingLastName === 'Sperre' && bookingFirstName !== '')
         )) {
           console.log(`Skipping our own owner block ${bookingId}: "${bookingFirstName} ${bookingLastName}" - this was synced FROM our calendar`);
+          // Still track dates for blackout filtering - these cover availability periods
+          const ownerArrival = booking.arrival || booking.firstNight || '';
+          const ownerDeparture = booking.departure || booking.lastNight || '';
+          if (ownerArrival && ownerDeparture) {
+            skippedOwnerBlockDateRanges.push({ start: ownerArrival, end: ownerDeparture });
+          }
           continue;
         }
 
@@ -1296,7 +1303,7 @@ export class Beds24ApiClient {
         const blackoutPeriods = await this.fetchCalendarBlackouts(fromDate, toDate);
         
         if (blackoutPeriods.length > 0) {
-          // Filter out periods that fully overlap with existing bookings (those are already synced)
+          // Filter out periods that fully overlap with existing bookings OR our own owner blocks
           // Beds24 availability: dates are inclusive (from and to are both unavailable days)
           // Beds24 bookings: arrival is inclusive, departure is exclusive (checkout day)
           const bookingDateRanges = bookings.map((b: any) => ({
@@ -1304,10 +1311,43 @@ export class Beds24ApiClient {
             end: b.departure || b.lastNight || ''
           })).filter((r: any) => r.start && r.end);
           
+          // Include skipped owner block date ranges - they also cover availability periods
+          bookingDateRanges.push(...skippedOwnerBlockDateRanges);
+          
+          // Also include local owner block events (red) from the database
+          const localOwnerBlocks = allUserEvents.filter(e => 
+            e.color === '#ef4444' && e.startTime && e.endTime
+          );
+          for (const block of localOwnerBlocks) {
+            const start = new Date(block.startTime).toISOString().split('T')[0];
+            const endDate = new Date(block.endTime);
+            endDate.setDate(endDate.getDate() + 1);
+            const end = endDate.toISOString().split('T')[0];
+            bookingDateRanges.push({ start, end });
+          }
+          
+          // Merge overlapping/adjacent date ranges for better coverage detection
+          const mergedRanges = (() => {
+            const sorted = [...bookingDateRanges].sort((a, b) => a.start.localeCompare(b.start));
+            const merged: Array<{start: string, end: string}> = [];
+            for (const range of sorted) {
+              if (merged.length === 0) {
+                merged.push({...range});
+              } else {
+                const last = merged[merged.length - 1];
+                // Check if ranges overlap or are adjacent (departure day = next arrival)
+                if (range.start <= last.end) {
+                  last.end = range.end > last.end ? range.end : last.end;
+                } else {
+                  merged.push({...range});
+                }
+              }
+            }
+            return merged;
+          })();
+          
           const pureBlackouts = blackoutPeriods.filter(blackout => {
-            for (const booking of bookingDateRanges) {
-              // Check if blackout period overlaps with any booking
-              // blackout.from/to are inclusive dates; booking.start is inclusive, booking.end is exclusive (departure day)
+            for (const booking of mergedRanges) {
               const bookingLastNight = new Date(booking.end);
               bookingLastNight.setDate(bookingLastNight.getDate() - 1);
               const bookingLastNightStr = bookingLastNight.toISOString().split('T')[0];
