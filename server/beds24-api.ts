@@ -397,6 +397,54 @@ export class Beds24ApiClient {
   }
 
   /**
+   * Fetch "black" (blocked/closed) bookings from Beds24
+   * These are room closures that Beds24 excludes from default booking queries
+   */
+  async fetchBlackBookings(fromDate?: Date, toDate?: Date): Promise<Beds24Booking[]> {
+    if (!this.accessToken) {
+      return [];
+    }
+
+    try {
+      const params: any = { status: 'black' };
+      
+      if (this.config?.propId) {
+        params.propertyId = this.config.propId;
+      }
+      if (fromDate) {
+        params.arrivalFrom = fromDate.toISOString().split('T')[0];
+      }
+      if (toDate) {
+        params.arrivalTo = toDate.toISOString().split('T')[0];
+      }
+
+      const response = await this.v2Instance.get('/bookings', {
+        headers: { 'token': this.accessToken },
+        params
+      });
+
+      let bookings: any[] = [];
+      if (response.data?.data && Array.isArray(response.data.data)) {
+        bookings = response.data.data;
+      } else if (Array.isArray(response.data)) {
+        bookings = response.data;
+      }
+
+      console.log(`Fetched ${bookings.length} black bookings from Beds24`);
+      return bookings;
+    } catch (error: any) {
+      if (error.response?.status === 401 && this.refreshToken) {
+        const refreshed = await this.refreshAccessToken();
+        if (refreshed) {
+          return this.fetchBlackBookings(fromDate, toDate);
+        }
+      }
+      console.warn('Failed to fetch black bookings:', error.response?.data || error.message);
+      return [];
+    }
+  }
+
+  /**
    * Fetch calendar blackout/override data from Beds24 inventory API
    * Blackouts in Beds24 are set via inventory/rooms/calendar, not via bookings
    */
@@ -657,12 +705,16 @@ export class Beds24ApiClient {
     // Sanitize the description to remove email addresses
     const description = sanitizeEventDescription(rawDescription);
 
+    const isBlackBooking = (booking.status || '').toLowerCase() === 'black';
+    const displayTitle = isBlackBooking ? (guestName !== 'Guest' ? guestName : 'Beds24 Sperre') : guestName;
+    
     const eventData: any = {
-      title: guestName,
+      title: displayTitle,
       description: description,
       startTime: startTime,
       endTime: endTime,
       color: this.getStatusColor(booking.status || 'new'),
+      isBlocked: isBlackBooking,
       allDay: true,
       source: {
         type: 'beds24',
@@ -673,7 +725,7 @@ export class Beds24ApiClient {
         lastModified: booking.bookingTime || new Date().toISOString(),
         uid: `beds24-${bookingId}`
       },
-      _needsNameEnhancement: guestName === 'Guest'
+      _needsNameEnhancement: !isBlackBooking && guestName === 'Guest'
     };
     return eventData;
   }
@@ -683,12 +735,12 @@ export class Beds24ApiClient {
    */
   private getStatusColor(status: string): string {
     const statusColors: { [key: string]: string } = {
-      'new': '#10b981', // green
-      'confirmed': '#3b82f6', // blue
-      'cancelled': '#ef4444', // red
-      'black': '#000000', // black (owner block)
-      'request': '#f59e0b', // amber
-      'inquiry': '#8b5cf6' // purple
+      'new': '#16a34a', // green - Beds24 bookings
+      'confirmed': '#16a34a', // green - Beds24 bookings
+      'cancelled': '#6b7280', // gray - cancelled
+      'black': '#eab308', // yellow - Beds24 blocks/closures
+      'request': '#16a34a', // green - Beds24 bookings
+      'inquiry': '#16a34a' // green - Beds24 bookings
     };
     
     return statusColors[status.toLowerCase()] || '#6b7280'; // gray default
@@ -892,9 +944,21 @@ export class Beds24ApiClient {
         console.log(`First sync for user ${this.userId} - fetching all bookings in time window`);
       }
 
-      // Fetch bookings from Beds24 with delta sync if applicable
+      // Fetch regular bookings from Beds24 with delta sync if applicable
       const bookings = await this.fetchBookings(fromDate, toDate, modifiedSince);
-      console.log(`Delta sync: fetched ${bookings.length} bookings from Beds24`);
+      console.log(`Delta sync: fetched ${bookings.length} regular bookings from Beds24`);
+      
+      // Also fetch "black" (blocked/closed) bookings - these are room closures
+      // Beds24 excludes them from default booking queries
+      try {
+        const blackBookings = await this.fetchBlackBookings(fromDate, toDate);
+        if (blackBookings.length > 0) {
+          console.log(`Fetched ${blackBookings.length} black (blocked) bookings from Beds24`);
+          bookings.push(...blackBookings);
+        }
+      } catch (blackErr: any) {
+        console.warn(`Could not fetch black bookings: ${blackErr.message}`);
+      }
       
       // Get ALL events for this user to check for duplicates from iCal or other sources
       const allUserEvents = await storage.getEvents(this.userId);
