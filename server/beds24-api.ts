@@ -11,11 +11,17 @@ const BEDS24_JSON_API_BASE = 'https://beds24.com/api/json';
 interface Beds24Booking {
   id: number;
   propertyId: number;
+  propId?: number;
+  property_id?: number;
   roomId: number;
   firstNight: string; // YYYY-MM-DD
   lastNight: string; // YYYY-MM-DD
+  arrival?: string;
+  departure?: string;
   arrivalTime?: string;
   departureTime?: string;
+  firstName?: string;
+  lastName?: string;
   guestFirstName?: string;
   guestName?: string;
   guestEmail?: string;
@@ -26,7 +32,13 @@ interface Beds24Booking {
   price: number;
   currency: string;
   notes?: string;
+  comments?: string;
+  summary?: string;
+  title?: string;
   bookingTime: string; // ISO datetime
+  bookId?: number;
+  bookingId?: number;
+  booking_id?: number;
 }
 
 interface Beds24TokenResponse {
@@ -134,13 +146,14 @@ export class Beds24ApiClient {
         const expiresIn = response.data.expiresIn || 86400;
         this.tokenExpiry = new Date(Date.now() + expiresIn * 1000);
         
-        // Store all tokens in database
+        const detectedScopes = response.data.scopes || response.data.scope || 'read/bookings,write/bookings,read/inventory,read/properties';
+        
         const configData: any = {
           userId: this.userId,
-          apiKey: response.data.token, // Current access token
+          apiKey: response.data.token,
           refreshToken: response.data.refreshToken,
           tokenExpiry: this.tokenExpiry,
-          scopes: 'read/bookings,write/bookings', // Default scopes for write access
+          scopes: typeof detectedScopes === 'string' ? detectedScopes : detectedScopes.join(','),
           propId: propId,
           syncEnabled: true,
           updatedAt: new Date()
@@ -167,8 +180,7 @@ export class Beds24ApiClient {
    */
   async setupWithApiKey(apiKey: string, propId: string): Promise<boolean> {
     try {
-      // Save configuration
-      const configData: Partial<InsertBeds24Config> = {
+      const configData: any = {
         userId: this.userId,
         apiKey: apiKey,
         propId: propId,
@@ -645,8 +657,8 @@ export class Beds24ApiClient {
     // Sanitize the description to remove email addresses
     const description = sanitizeEventDescription(rawDescription);
 
-    return {
-      title: guestName, // Only show guest name in title
+    const eventData: any = {
+      title: guestName,
       description: description,
       startTime: startTime,
       endTime: endTime,
@@ -659,11 +671,11 @@ export class Beds24ApiClient {
         roomId: booking.roomId?.toString() || '',
         status: booking.status || 'new',
         lastModified: booking.bookingTime || new Date().toISOString(),
-        uid: `beds24-${bookingId}` // Unique identifier
+        uid: `beds24-${bookingId}`
       },
-      // Mark if name needs to be enhanced from iCal
       _needsNameEnhancement: guestName === 'Guest'
     };
+    return eventData;
   }
 
   /**
@@ -1256,7 +1268,7 @@ export class Beds24ApiClient {
       await storage.upsertBeds24Config(this.userId, {
         lastSync: syncCompleted,
         updatedAt: syncCompleted
-      });
+      } as any);
       
       console.log(`Beds24 sync completed for user ${this.userId}: ${synced} new, ${updated} updated, ${deleted} deleted`);
       console.log(`Delta sync: Updated lastSync to ${syncCompleted.toISOString()}`);
