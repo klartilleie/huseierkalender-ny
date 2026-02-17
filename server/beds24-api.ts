@@ -1092,6 +1092,7 @@ export class Beds24ApiClient {
           const needsUpdate = 
             existingEvent.title !== eventData.title ||
             existingEvent.description !== eventData.description ||
+            existingEvent.color !== eventData.color ||
             existingEvent.startTime?.getTime() !== eventData.startTime?.getTime() ||
             existingEvent.endTime?.getTime() !== eventData.endTime?.getTime() ||
             (existingEvent.source as any)?.status !== booking.status;
