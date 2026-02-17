@@ -695,7 +695,7 @@ export class Beds24ApiClient {
     const description = sanitizeEventDescription(rawDescription);
 
     const isBlackBooking = (booking.status || '').toLowerCase() === 'black';
-    const displayTitle = isBlackBooking ? (guestName !== 'Guest' ? guestName : 'Beds24 Sperre') : guestName;
+    const displayTitle = isBlackBooking ? (guestName !== 'Guest' ? guestName : 'Sperret av Smart Hjem AS') : guestName;
     
     const eventData: any = {
       title: displayTitle,
@@ -1260,7 +1260,7 @@ export class Beds24ApiClient {
               const startDate = new Date(blackout.from + 'T14:00:00');
               const endDate = new Date(blackout.to + 'T11:00:00');
               
-              const blackoutTitle = propertyName ? `Beds24 Sperre - ${propertyName}` : 'Beds24 Sperre';
+              const blackoutTitle = propertyName ? `Sperret av Smart Hjem AS - ${propertyName}` : 'Sperret av Smart Hjem AS';
               const blackoutEvent: Partial<Event> = {
                 title: blackoutTitle,
                 description: `Utilgjengelig periode fra Beds24${propertyName ? ` (${propertyName})` : ''}\nFra: ${blackout.from}\nTil: ${blackout.to}`,
