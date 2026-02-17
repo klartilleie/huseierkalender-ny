@@ -1,6 +1,6 @@
 import { format, addMonths, subMonths, addWeeks, subWeeks, addDays, subDays } from "date-fns";
 import { Button } from "@/components/ui/button";
-import { Plus, ChevronLeft, ChevronRight, Users, Calendar as CalendarIcon, Menu, Grid3X3, Maximize2 } from "lucide-react";
+import { Plus, ChevronLeft, ChevronRight, Users, Calendar as CalendarIcon, Menu, Grid3X3, Maximize2, Building2 } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useLanguage } from "@/hooks/use-language";
 import { 
@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { User } from "@shared/schema";
+import { User, UserProperty } from "@shared/schema";
 import { useMediaQuery } from "@/hooks/use-media-query";
 import { useDevicePreference } from "@/hooks/use-device-preference";
 import { 
@@ -32,6 +32,9 @@ interface CalendarHeaderProps {
   onUserChange?: (userId: number) => void;
   calendarSize?: "large" | "compact";
   onCalendarSizeChange?: (size: "large" | "compact") => void;
+  userProperties?: UserProperty[];
+  selectedPropertyId?: string | null;
+  onPropertyChange?: (propertyId: string | null) => void;
 }
 
 export default function CalendarHeader({
@@ -45,6 +48,9 @@ export default function CalendarHeader({
   onUserChange,
   calendarSize = "large",
   onCalendarSizeChange,
+  userProperties,
+  selectedPropertyId,
+  onPropertyChange,
 }: CalendarHeaderProps) {
   const { user } = useAuth();
   const { t } = useLanguage();
@@ -187,7 +193,7 @@ export default function CalendarHeader({
               
               {/* User selector for admin and mini admin - Third row */}
               {(user?.isAdmin || user?.isMiniAdmin) && users && users.length > 0 && onUserChange && (
-                <div className="flex justify-end mt-1">
+                <div className="flex justify-end mt-1 gap-1">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="outline" size="sm" className="h-7 px-2">
@@ -214,6 +220,33 @@ export default function CalendarHeader({
                       }
                     </DropdownMenuContent>
                   </DropdownMenu>
+                  
+                  {/* Property filter - mobile */}
+                  {userProperties && userProperties.length > 1 && selectedUserId !== user.id && onPropertyChange && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="sm" className="h-7 px-2">
+                          <Building2 className="h-3.5 w-3.5 mr-1" />
+                          <span className="text-xs truncate max-w-[80px]">
+                            {selectedPropertyId 
+                              ? userProperties.find(p => p.beds24PropId === selectedPropertyId)?.name || "Eiendom"
+                              : "Alle eiendommer"}
+                          </span>
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => onPropertyChange(null)}>
+                          Alle eiendommer
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        {userProperties.map(prop => (
+                          <DropdownMenuItem key={prop.id} onClick={() => onPropertyChange(prop.beds24PropId)}>
+                            {prop.name}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </div>
               )}
             </div>
@@ -226,7 +259,7 @@ export default function CalendarHeader({
               
               {/* User selection dropdown for admin and mini admin users */}
               {(user?.isAdmin || user?.isMiniAdmin) && users && users.length > 0 && onUserChange && (
-                <div className="flex items-center ml-2">
+                <div className="flex items-center ml-2 gap-2">
                   <Select
                     value={selectedUserId?.toString() || user.id.toString()}
                     onValueChange={(value) => onUserChange(parseInt(value))}
@@ -247,6 +280,27 @@ export default function CalendarHeader({
                       }
                     </SelectContent>
                   </Select>
+                  
+                  {/* Property filter - desktop */}
+                  {userProperties && userProperties.length > 1 && selectedUserId !== user.id && onPropertyChange && (
+                    <Select
+                      value={selectedPropertyId || "all"}
+                      onValueChange={(value) => onPropertyChange(value === "all" ? null : value)}
+                    >
+                      <SelectTrigger className="h-9 w-[180px] pl-2 pr-1 text-sm bg-gray-50 border-gray-200">
+                        <Building2 className="h-4 w-4 mr-1 text-gray-400" />
+                        <SelectValue placeholder="Alle eiendommer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">Alle eiendommer</SelectItem>
+                        {userProperties.map(prop => (
+                          <SelectItem key={prop.id} value={prop.beds24PropId}>
+                            {prop.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  )}
                 </div>
               )}
             </div>

@@ -9,7 +9,7 @@ import EventDetailsModal from "@/components/modals/EventDetailsModal";
 import MarkDayModal from "@/components/modals/MarkDayModal";
 import MarkedDayDetailsModal from "@/components/modals/MarkedDayDetailsModal";
 import Layout from "@/components/Layout";
-import { Event, MarkedDay, User } from "@shared/schema";
+import { Event, MarkedDay, User, UserProperty } from "@shared/schema";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
 import { apiRequest } from "@/lib/queryClient";
@@ -30,6 +30,9 @@ export default function HomePage() {
   const [selectedUserId, setSelectedUserId] = useState<number | null>(null);
   const [viewingOtherUser, setViewingOtherUser] = useState(false);
   
+  // Property filter state for admin viewing user calendars
+  const [selectedPropertyId, setSelectedPropertyId] = useState<string | null>(null);
+  
   // Marked day states
   const [showMarkDayModal, setShowMarkDayModal] = useState(false);
   const [selectedMarkedDay, setSelectedMarkedDay] = useState<MarkedDay | null>(null);
@@ -44,6 +47,17 @@ export default function HomePage() {
       return response.json();
     },
     enabled: !!(user?.isAdmin || user?.isMiniAdmin),
+  });
+
+  // Fetch properties for the selected user when admin is viewing their calendar
+  const { data: viewedUserProperties = [] } = useQuery<UserProperty[]>({
+    queryKey: ["/api/admin/user-properties", selectedUserId],
+    queryFn: async () => {
+      if (!selectedUserId) return [];
+      const response = await apiRequest("GET", `/api/admin/user-properties?userId=${selectedUserId}`);
+      return response.json();
+    },
+    enabled: !!user?.isAdmin && !!selectedUserId && viewingOtherUser,
   });
 
   // Effect to reset selected user if admin/mini admin status changes
@@ -145,14 +159,19 @@ export default function HomePage() {
   // Handle user change in dropdown
   const handleUserChange = (userId: number) => {
     if (user?.id === userId) {
-      // Return to personal calendar
       setSelectedUserId(null);
       setViewingOtherUser(false);
+      setSelectedPropertyId(null);
     } else {
-      // View another user's calendar
       setSelectedUserId(userId);
       setViewingOtherUser(true);
+      setSelectedPropertyId(null);
     }
+  };
+
+  // Handle property filter change
+  const handlePropertyChange = (propertyId: string | null) => {
+    setSelectedPropertyId(propertyId);
   };
 
   // Fetch user marked days when viewing another user's calendar
@@ -186,7 +205,17 @@ export default function HomePage() {
   });
 
   // Use the appropriate events and marked days based on whether admin is viewing another user's calendar
-  const allEvents = viewingOtherUser ? userEvents : [...events, ...icalEvents];
+  const rawEvents = viewingOtherUser ? userEvents : [...events, ...icalEvents];
+  
+  // Apply property filter if admin is viewing a user's calendar with a property selected
+  const allEvents = selectedPropertyId && viewingOtherUser
+    ? rawEvents.filter((event: Event) => {
+        const source = event.source as any;
+        if (!source || source.type !== 'beds24') return true;
+        return source.propertyId === selectedPropertyId;
+      })
+    : rawEvents;
+  
   const markedDays = viewingOtherUser ? userMarkedDays : personalMarkedDays;
 
   const handleDateChange = (date: Date) => {
@@ -275,6 +304,9 @@ export default function HomePage() {
             users={users}
             selectedUserId={selectedUserId}
             onUserChange={handleUserChange}
+            userProperties={viewedUserProperties}
+            selectedPropertyId={selectedPropertyId}
+            onPropertyChange={handlePropertyChange}
           />
           
           {calendarSize === "compact" ? (
