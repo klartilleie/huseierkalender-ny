@@ -18,7 +18,7 @@ function getEventColor(event: Event): string {
   if (source && typeof source === 'object' && source.type === 'beds24') {
     const status = (source.status || '').toLowerCase();
     // Blocks/blackouts from Beds24 = Yellow
-    if (status === 'black' || status === 'blocked' || status === 'owner' || status === 'maintenance') {
+    if (status === 'black' || status === 'blocked' || status === 'owner' || status === 'maintenance' || status === 'unavailable' || status === 'blackout') {
       return "#eab308"; // Yellow
     }
     // Bookings from Beds24 = Green
