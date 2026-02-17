@@ -34,7 +34,7 @@ Preferred communication style: Simple, everyday language.
 - **Customer Support**: Ticket creation, messaging, attachments, status/priority, admin assignment.
 - **Payouts**: Monthly tracking per user, status (paid/pending/cancelled), yearly summaries, admin/user dashboards.
 - **Agreements**: Admin-scheduled meetings, status tracking, detailed notes (public/private), notifications.
-- **Beds24 Integration**: Bidirectional sync for bookings and blocks, delta sync, optimized sync window (-30 to +360 days), 1-minute sync frequency, protection for CSV-imported events, automatic email removal from event descriptions.
+- **Beds24 Integration**: Bidirectional sync for bookings and blocks, delta sync, optimized sync window (-30 to +360 days), 1-minute sync frequency, protection for CSV-imported events, automatic email removal from event descriptions. Multi-property sync via user_properties table (Beds24ApiClient accepts overridePropId). Availability-based blackout detection via inventory/availability endpoint. Property names shown in blackout event titles for multi-property users.
 - **Email Notifications**: SMTP-based, calendar event notifications (create, update, delete) with admin/user toggles.
 - **Real-time Updates**: WebSocket support for instant notifications.
 

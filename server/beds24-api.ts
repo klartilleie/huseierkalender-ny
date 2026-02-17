@@ -51,13 +51,15 @@ export class Beds24ApiClient {
   private v2Instance: AxiosInstance;
   private jsonInstance: AxiosInstance;
   private userId: number;
+  private overridePropId: string | null = null;
   private config: Beds24Config | null = null;
   private accessToken: string | null = null;
   private refreshToken: string | null = null;
   private tokenExpiry: Date | null = null;
 
-  constructor(userId: number) {
+  constructor(userId: number, overridePropId?: string) {
     this.userId = userId;
+    this.overridePropId = overridePropId || null;
     
     // API V2 instance
     this.v2Instance = axios.create({
@@ -116,7 +118,12 @@ export class Beds24ApiClient {
         this.refreshToken = this.config.apiKey;
       }
 
-      console.log(`Beds24 API initialized for user ${this.userId} with property ID ${this.config.propId}`);
+      if (this.overridePropId) {
+        this.config = { ...this.config, propId: this.overridePropId };
+        console.log(`Beds24 API initialized for user ${this.userId} with OVERRIDE property ID ${this.overridePropId}`);
+      } else {
+        console.log(`Beds24 API initialized for user ${this.userId} with property ID ${this.config.propId}`);
+      }
       return true;
     } catch (error) {
       console.error('Failed to initialize Beds24 API client:', error);
@@ -900,6 +907,16 @@ export class Beds24ApiClient {
         return { synced: 0, updated: 0, deleted: 0 };
       }
 
+      // Look up property name from user_properties table
+      let propertyName = '';
+      try {
+        const userProps = await storage.getUserProperties(this.userId);
+        const matchingProp = userProps.find(p => p.beds24PropId === this.config!.propId);
+        if (matchingProp) {
+          propertyName = matchingProp.name;
+        }
+      } catch {}
+
       // Calculate date range - 30 days backward, 360 days forward
       const now = new Date();
       const fromDate = new Date(now);
@@ -1243,9 +1260,10 @@ export class Beds24ApiClient {
               const startDate = new Date(blackout.from + 'T14:00:00');
               const endDate = new Date(blackout.to + 'T11:00:00');
               
+              const blackoutTitle = propertyName ? `Beds24 Sperre - ${propertyName}` : 'Beds24 Sperre';
               const blackoutEvent: Partial<Event> = {
-                title: 'Beds24 Sperre',
-                description: `Utilgjengelig periode fra Beds24\nFra: ${blackout.from}\nTil: ${blackout.to}`,
+                title: blackoutTitle,
+                description: `Utilgjengelig periode fra Beds24${propertyName ? ` (${propertyName})` : ''}\nFra: ${blackout.from}\nTil: ${blackout.to}`,
                 startTime: startDate,
                 endTime: endDate,
                 color: '#eab308',
@@ -1350,22 +1368,37 @@ export class Beds24ApiClient {
 }
 
 /**
- * Sync Beds24 calendar for a specific user (on-demand)
+ * Sync Beds24 calendar for a specific user (on-demand), including all additional properties
  */
 export async function syncUserBeds24Calendar(userId: number): Promise<void> {
   try {
-    // Check if user has Beds24 configuration
     const config = await storage.getBeds24Config(userId);
     
     if (!config || !config.syncEnabled) {
-      return; // No Beds24 sync for this user
+      return;
     }
     
+    // Sync primary property
     const client = new Beds24ApiClient(userId);
     const initialized = await client.initialize();
     
     if (initialized) {
       await client.syncBookingsToCalendar();
+    }
+    
+    // Sync additional properties
+    const userProps = await storage.getUserProperties(userId);
+    const additionalProps = userProps.filter(
+      p => p.isActive && p.beds24PropId !== config.propId
+    );
+    
+    for (const prop of additionalProps) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      const propClient = new Beds24ApiClient(userId, prop.beds24PropId);
+      const propInitialized = await propClient.initialize();
+      if (propInitialized) {
+        await propClient.syncBookingsToCalendar();
+      }
     }
   } catch (error) {
     console.error(`Error during on-demand Beds24 sync for user ${userId}:`, error);
@@ -1373,13 +1406,12 @@ export async function syncUserBeds24Calendar(userId: number): Promise<void> {
 }
 
 /**
- * Sync all users' Beds24 calendars
+ * Sync all users' Beds24 calendars, including additional properties from user_properties table
  */
 export async function syncAllBeds24Calendars(): Promise<void> {
   console.log('Starting Beds24 sync for all users...');
   
   try {
-    // Get all users with Beds24 configurations
     const configs = await storage.getAllBeds24Configs();
     
     if (configs.length === 0) {
@@ -1389,25 +1421,53 @@ export async function syncAllBeds24Calendars(): Promise<void> {
 
     console.log(`Found ${configs.length} Beds24 configurations to sync`);
     
-    // Process each configuration with delay to respect rate limits
     for (const config of configs) {
       if (!config.syncEnabled) {
         console.log(`Skipping disabled Beds24 sync for user ${config.userId}`);
         continue;
       }
 
+      if (config.propId === 'master') {
+        continue;
+      }
+
       try {
+        // Sync primary property
         const client = new Beds24ApiClient(config.userId);
         const initialized = await client.initialize();
         
         if (initialized) {
           const result = await client.syncBookingsToCalendar();
-          console.log(`Beds24 sync completed for user ${config.userId}:`, result);
+          console.log(`Beds24 sync completed for user ${config.userId} (primary ${config.propId}):`, result);
         } else {
           console.error(`Failed to initialize Beds24 client for user ${config.userId}`);
         }
         
-        // Wait 2 seconds between users to respect rate limits
+        // Sync additional properties from user_properties table
+        try {
+          const userProps = await storage.getUserProperties(config.userId);
+          const additionalProps = userProps.filter(
+            p => p.isActive && p.beds24PropId !== config.propId
+          );
+          
+          for (const prop of additionalProps) {
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            try {
+              const propClient = new Beds24ApiClient(config.userId, prop.beds24PropId);
+              const propInitialized = await propClient.initialize();
+              
+              if (propInitialized) {
+                const propResult = await propClient.syncBookingsToCalendar();
+                console.log(`Beds24 sync completed for user ${config.userId} (additional property ${prop.beds24PropId} "${prop.name}"):`, propResult);
+              }
+            } catch (propError) {
+              console.error(`Error syncing additional property ${prop.beds24PropId} for user ${config.userId}:`, propError);
+            }
+          }
+        } catch (propsError) {
+          console.error(`Error fetching additional properties for user ${config.userId}:`, propsError);
+        }
+        
         await new Promise(resolve => setTimeout(resolve, 2000));
       } catch (error) {
         console.error(`Error syncing Beds24 for user ${config.userId}:`, error);

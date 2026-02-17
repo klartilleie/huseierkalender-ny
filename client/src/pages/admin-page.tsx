@@ -1721,7 +1721,10 @@ export default function AdminPage() {
               
               {/* Beds24 Tab */}
               <TabsContent value="beds24">
-                <AdminBeds24Config />
+                <div className="space-y-6">
+                  <AdminBeds24Config />
+                  <UserPropertiesManager users={users || []} />
+                </div>
               </TabsContent>
               
               {/* Design Tab */}
