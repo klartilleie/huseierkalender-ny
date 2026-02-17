@@ -457,7 +457,7 @@ export class Beds24ApiClient {
       const fromStr = fromDate.toISOString().split('T')[0];
       const toStr = toDate.toISOString().split('T')[0];
       
-      const response = await this.v2Instance.get('/inventory/rooms/calendar', {
+      const response = await this.v2Instance.get('/inventory/availability', {
         headers: { 'token': this.accessToken },
         params: {
           propertyId: this.config.propId,
@@ -466,8 +466,7 @@ export class Beds24ApiClient {
         }
       });
 
-      console.log(`Beds24 inventory/calendar response status: ${response.status}`);
-      console.log(`Inventory response preview:`, JSON.stringify(response.data).substring(0, 1000));
+      console.log(`Beds24 inventory/availability response status: ${response.status}`);
       
       let rooms: any[] = [];
       if (response.data?.data && Array.isArray(response.data.data)) {
@@ -476,35 +475,24 @@ export class Beds24ApiClient {
         rooms = response.data;
       }
       
-      console.log(`Parsed ${rooms.length} rooms from inventory response`);
-      if (rooms.length > 0) {
-        const firstRoom = rooms[0];
-        console.log(`First room keys:`, Object.keys(firstRoom));
-        const calField = firstRoom.calendar || firstRoom.dates || firstRoom.days || [];
-        if (Array.isArray(calField) && calField.length > 0) {
-          console.log(`First calendar entry:`, JSON.stringify(calField[0]));
-          console.log(`Calendar entries count:`, calField.length);
-        } else if (typeof calField === 'object' && !Array.isArray(calField)) {
-          console.log(`Calendar is object with keys:`, Object.keys(calField).slice(0, 10));
-        }
-      }
+      console.log(`Parsed ${rooms.length} rooms from availability response`);
 
       const blackoutPeriods: Array<{from: string, to: string, roomId: number}> = [];
 
       for (const room of rooms) {
         const roomId = room.roomId || room.id;
-        const calendar = room.calendar || room.dates || [];
+        const availability = room.availability;
         
-        if (!Array.isArray(calendar)) continue;
+        if (!availability || typeof availability !== 'object') continue;
 
+        const dates = Object.keys(availability).sort();
         let currentBlackout: {from: string, to: string, roomId: number} | null = null;
 
-        for (const day of calendar) {
-          const date = day.date || day.from;
-          const override = (day.override || '').toLowerCase();
-          const isBlackout = override === 'blackout' || override === 'black';
+        for (let i = 0; i < dates.length; i++) {
+          const date = dates[i];
+          const isUnavailable = availability[date] === false;
 
-          if (isBlackout && date) {
+          if (isUnavailable) {
             if (!currentBlackout) {
               currentBlackout = { from: date, to: date, roomId };
             } else {
@@ -512,9 +500,6 @@ export class Beds24ApiClient {
             }
           } else {
             if (currentBlackout) {
-              const endDate = new Date(currentBlackout.to);
-              endDate.setDate(endDate.getDate() + 1);
-              currentBlackout.to = endDate.toISOString().split('T')[0];
               blackoutPeriods.push(currentBlackout);
               currentBlackout = null;
             }
@@ -522,9 +507,6 @@ export class Beds24ApiClient {
         }
 
         if (currentBlackout) {
-          const endDate = new Date(currentBlackout.to);
-          endDate.setDate(endDate.getDate() + 1);
-          currentBlackout.to = endDate.toISOString().split('T')[0];
           blackoutPeriods.push(currentBlackout);
         }
       }
@@ -1208,17 +1190,40 @@ export class Beds24ApiClient {
         }
       }
 
-      // Sync blackout/override periods from Beds24 inventory API
+      // Sync availability-based blackout periods from Beds24 inventory API
       try {
         const blackoutPeriods = await this.fetchCalendarBlackouts(fromDate, toDate);
         
         if (blackoutPeriods.length > 0) {
-          console.log(`Processing ${blackoutPeriods.length} blackout periods for user ${this.userId}`);
+          // Filter out periods that fully overlap with existing bookings (those are already synced)
+          // Beds24 availability: dates are inclusive (from and to are both unavailable days)
+          // Beds24 bookings: arrival is inclusive, departure is exclusive (checkout day)
+          const bookingDateRanges = bookings.map((b: any) => ({
+            start: b.arrival || b.firstNight || '',
+            end: b.departure || b.lastNight || ''
+          })).filter((r: any) => r.start && r.end);
           
-          // Get existing blackout events for this user
+          const pureBlackouts = blackoutPeriods.filter(blackout => {
+            for (const booking of bookingDateRanges) {
+              // Check if blackout period overlaps with any booking
+              // blackout.from/to are inclusive dates; booking.start is inclusive, booking.end is exclusive (departure day)
+              const bookingLastNight = new Date(booking.end);
+              bookingLastNight.setDate(bookingLastNight.getDate() - 1);
+              const bookingLastNightStr = bookingLastNight.toISOString().split('T')[0];
+              
+              if (blackout.from >= booking.start && blackout.to <= bookingLastNightStr) {
+                console.log(`Filtering blackout ${blackout.from}-${blackout.to}: fully covered by booking ${booking.start}-${booking.end}`);
+                return false;
+              }
+            }
+            return true;
+          });
+          
+          console.log(`Processing ${pureBlackouts.length} pure blackout periods (filtered from ${blackoutPeriods.length} total unavailable periods) for user ${this.userId}`);
+          
           const existingBlackouts = existingEvents.filter(e => {
             if (e.source && typeof e.source === 'object' && 'type' in e.source && 'status' in e.source) {
-              return e.source.type === 'beds24' && (e.source.status === 'blackout' || e.source.status === 'black');
+              return e.source.type === 'beds24' && (e.source.status === 'blackout' || e.source.status === 'black' || e.source.status === 'unavailable');
             }
             return false;
           });
@@ -1229,9 +1234,9 @@ export class Beds24ApiClient {
             return `${start}_${end}`;
           }));
           
-          const newBlackoutKeys = new Set(blackoutPeriods.map(b => `${b.from}_${b.to}`));
+          const newBlackoutKeys = new Set(pureBlackouts.map(b => `${b.from}_${b.to}`));
 
-          for (const blackout of blackoutPeriods) {
+          for (const blackout of pureBlackouts) {
             const key = `${blackout.from}_${blackout.to}`;
             
             if (!existingBlackoutKeys.has(key)) {
@@ -1239,16 +1244,17 @@ export class Beds24ApiClient {
               const endDate = new Date(blackout.to + 'T11:00:00');
               
               const blackoutEvent: Partial<Event> = {
-                title: 'Blackout',
-                description: 'Blokering fra Beds24 (Override)',
+                title: 'Beds24 Sperre',
+                description: `Utilgjengelig periode fra Beds24\nFra: ${blackout.from}\nTil: ${blackout.to}`,
                 startTime: startDate,
                 endTime: endDate,
                 color: '#eab308',
-                allDay: false,
+                allDay: true,
+                isBlocked: true,
                 source: {
                   type: 'beds24',
-                  status: 'blackout',
-                  uid: `beds24-blackout-${blackout.from}-${blackout.to}-${blackout.roomId}`,
+                  status: 'unavailable',
+                  uid: `beds24-avail-${blackout.from}-${blackout.to}-${blackout.roomId}`,
                   roomId: String(blackout.roomId),
                   propertyId: this.config!.propId
                 }
@@ -1256,11 +1262,10 @@ export class Beds24ApiClient {
               
               await storage.createEvent(this.userId, blackoutEvent as any);
               synced++;
-              console.log(`Created blackout event: ${blackout.from} to ${blackout.to}`);
+              console.log(`Created availability blackout event: ${blackout.from} to ${blackout.to}`);
             }
           }
           
-          // Remove blackout events that no longer exist in Beds24
           for (const existingBlackout of existingBlackouts) {
             const start = new Date(existingBlackout.startTime).toISOString().split('T')[0];
             const end = new Date(existingBlackout.endTime).toISOString().split('T')[0];
