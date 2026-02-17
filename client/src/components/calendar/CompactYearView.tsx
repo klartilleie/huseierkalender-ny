@@ -166,7 +166,7 @@ export default function CompactYearView({
   // Get week number for the first day of each week
   const getWeekNumberForWeek = (week: (Date | null)[]) => {
     const firstDate = week.find(date => date !== null);
-    return firstDate ? getWeek(firstDate) : null;
+    return firstDate ? getWeek(firstDate, { weekStartsOn: 1 }) : null;
   };
 
   return (

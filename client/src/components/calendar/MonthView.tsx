@@ -82,8 +82,8 @@ export default function MonthView({
   
   // Shortened weekday names for mobile
   const displayWeekdays = isMobile 
-    ? ["S", "M", "T", "O", "T", "F", "L"] // Norwegian short weekday names
-    : ["Søn", "Man", "Tir", "Ons", "Tor", "Fre", "Lør"]; // Full Norwegian weekday names
+    ? ["M", "T", "O", "T", "F", "L", "S"] // Norwegian short weekday names (Monday start)
+    : ["Man", "Tir", "Ons", "Tor", "Fre", "Lør", "Søn"]; // Norwegian weekday names (Monday start)
 
   // Get the number of months to display based on mobile or desktop
   const monthsToShow = isMobile ? 1 : 3; // Mobile shows 1 month, desktop shows 3
@@ -142,8 +142,8 @@ export default function MonthView({
 
   // Get days for a specific month view
   const getDaysInMonth = (date = currentDate) => {
-    const start = startOfWeek(startOfMonth(date));
-    const end = endOfWeek(endOfMonth(date));
+    const start = startOfWeek(startOfMonth(date), { weekStartsOn: 1 });
+    const end = endOfWeek(endOfMonth(date), { weekStartsOn: 1 });
     
     const days = [];
     let day = start;
@@ -309,7 +309,7 @@ export default function MonthView({
             {/* Month Days Grid with Week Numbers */}
             <div className="flex flex-col gap-[1px] md:gap-0.5 flex-1">
               {weeks.map((week, weekIndex) => {
-                const weekNumber = getWeek(week[0]);
+                const weekNumber = getWeek(week[0], { weekStartsOn: 1 });
                 
                 return (
                   <div key={weekIndex} className="grid grid-cols-8 gap-[1px] md:gap-0.5">

@@ -83,7 +83,9 @@ export default function CalendarHeader({
       return format(currentDate, "MMMM yyyy");
     } else if (currentView === "week") {
       const start = new Date(currentDate);
-      start.setDate(start.getDate() - start.getDay());
+      const dayOfWeek = start.getDay();
+      const mondayOffset = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      start.setDate(start.getDate() - mondayOffset);
       const end = new Date(start);
       end.setDate(end.getDate() + 6);
       

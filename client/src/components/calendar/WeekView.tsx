@@ -80,7 +80,7 @@ export default function WeekView({ currentDate, events, onDateClick, onEventClic
   // Calculate week days
   useEffect(() => {
     const days = [];
-    const startDay = startOfWeek(currentDate);
+    const startDay = startOfWeek(currentDate, { weekStartsOn: 1 });
     
     for (let i = 0; i < 7; i++) {
       days.push(addDays(startDay, i));
