@@ -1088,6 +1088,20 @@ export class Beds24ApiClient {
           continue; // Skip this booking - it's for the wrong property
         }
 
+        // Check if this is a "black" booking we created ourselves (local owner block synced to Beds24)
+        const isBlackStatus = (booking.status || '').toLowerCase() === 'black';
+        const bookingFirstName = (booking.firstName || '').trim().replace(/\r/g, '');
+        const bookingLastName = (booking.lastName || '').trim().replace(/\r/g, '');
+        if (isBlackStatus && (
+          bookingFirstName === 'Eiersperre tid' ||
+          bookingFirstName === 'Eier' ||
+          (bookingFirstName === 'Eiersperre tid' && bookingLastName === 'Sperre') ||
+          (bookingLastName === 'Sperre' && bookingFirstName !== '')
+        )) {
+          console.log(`Skipping our own owner block ${bookingId}: "${bookingFirstName} ${bookingLastName}" - this was synced FROM our calendar`);
+          continue;
+        }
+
         // Check if this booking might be an echo of our own calendar events
         // Only skip if it's obviously from our own calendar system
         const bookingTitle = booking.summary || booking.title || '';
