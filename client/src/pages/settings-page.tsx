@@ -3,7 +3,7 @@ import { useAuth } from "@/hooks/use-auth";
 import { useToast } from "@/hooks/use-toast";
 import { useLanguage } from "@/hooks/use-language";
 import { useLocation } from "wouter";
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import Layout from "@/components/Layout";
 import {
@@ -42,7 +42,12 @@ import {
   AlertTriangle,
   Copy,
   ExternalLink,
+  Calendar,
+  CheckCircle2,
+  XCircle,
 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
+import type { IcalFeed } from "@shared/schema";
 
 export default function SettingsPage() {
   const { user, logoutMutation } = useAuth();
@@ -64,6 +69,80 @@ export default function SettingsPage() {
     newPassword: "",
     confirmPassword: "",
   });
+
+  // Google Calendar state
+  const [googleCalUrl, setGoogleCalUrl] = useState("");
+  const [googleCalName, setGoogleCalName] = useState("HYTTE");
+
+  // Fetch Google Calendar feeds
+  const { data: googleFeeds = [], isLoading: googleFeedsLoading } = useQuery<IcalFeed[]>({
+    queryKey: ["/api/ical-feeds"],
+    select: (feeds) => feeds.filter((f: IcalFeed) => f.isGoogleCalendar === true),
+  });
+
+  // Add Google Calendar mutation
+  const addGoogleCalMutation = useMutation({
+    mutationFn: async (data: { name: string; url: string }) => {
+      const res = await apiRequest("POST", "/api/ical-feeds/google-calendar", data);
+      return await res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ical-feeds"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/events"] });
+      setGoogleCalUrl("");
+      setGoogleCalName("HYTTE");
+      toast({
+        title: "Google Kalender lagt til",
+        description: "Din Google Kalender er nå koblet til. Hendelser synkroniseres automatisk hvert minutt.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Kunne ikke legge til Google Kalender",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Delete Google Calendar feed mutation
+  const deleteGoogleCalMutation = useMutation({
+    mutationFn: async (id: number) => {
+      await apiRequest("DELETE", `/api/ical-feeds/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ical-feeds"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/events"] });
+      toast({
+        title: "Google Kalender fjernet",
+        description: "Google Kalender-koblingen er fjernet.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Feil",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Toggle Google Calendar feed enabled/disabled
+  const toggleGoogleCalMutation = useMutation({
+    mutationFn: async ({ id, enabled }: { id: number; enabled: boolean }) => {
+      const res = await apiRequest("PUT", `/api/ical-feeds/${id}`, { enabled });
+      return await res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/ical-feeds"] });
+      toast({
+        title: "Oppdatert",
+        description: "Google Kalender-innstillingen er oppdatert.",
+      });
+    },
+  });
+
+  const [deleteGoogleCalId, setDeleteGoogleCalId] = useState<number | null>(null);
 
   // Profile update mutation
   const updateProfileMutation = useMutation({
@@ -221,7 +300,7 @@ export default function SettingsPage() {
           </CardHeader>
           <CardContent>
             <Tabs defaultValue="profile" className="w-full">
-              <TabsList className="grid w-full grid-cols-3 mb-8">
+              <TabsList className="grid w-full grid-cols-4 mb-8">
                 <TabsTrigger value="profile" className="flex items-center gap-2">
                   <User size={16} />
                   Profil
@@ -229,6 +308,10 @@ export default function SettingsPage() {
                 <TabsTrigger value="password" className="flex items-center gap-2">
                   <Lock size={16} />
                   Passord
+                </TabsTrigger>
+                <TabsTrigger value="google-calendar" className="flex items-center gap-2">
+                  <Calendar size={16} />
+                  Google Kalender
                 </TabsTrigger>
                 <TabsTrigger value="calendar" className="flex items-center gap-2">
                   <ExternalLink size={16} />
@@ -443,6 +526,180 @@ export default function SettingsPage() {
                     </Button>
                   </div>
                 </form>
+              </TabsContent>
+
+              {/* Google Calendar Tab */}
+              <TabsContent value="google-calendar">
+                <div className="space-y-6">
+                  <div className="grid gap-3">
+                    <h3 className="text-lg font-medium">Koble til Google Kalender</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Koble din Google Kalender til Smart Hjem-kalenderen. Alle hendelser du legger til i Google Kalender 
+                      vil automatisk vises her som eiersperrer (rød farge), akkurat som om du hadde lagt dem inn direkte p&aring; siden.
+                    </p>
+                  </div>
+
+                  {googleFeedsLoading ? (
+                    <div className="flex items-center justify-center p-4">
+                      <Loader2 className="h-6 w-6 animate-spin" />
+                    </div>
+                  ) : googleFeeds.length > 0 ? (
+                    <div className="space-y-3">
+                      <h4 className="text-sm font-medium">Dine Google Kalendere</h4>
+                      {googleFeeds.map((feed) => (
+                        <div key={feed.id} className="flex items-center justify-between p-3 border rounded-lg bg-card">
+                          <div className="flex items-center gap-3">
+                            <div className="w-3 h-3 rounded-full bg-red-500" />
+                            <div>
+                              <p className="font-medium text-sm">{feed.name}</p>
+                              <p className="text-xs text-muted-foreground truncate max-w-[250px]">{feed.url}</p>
+                              <div className="flex items-center gap-1 mt-1">
+                                {feed.enabled ? (
+                                  <span className="flex items-center gap-1 text-xs text-green-600">
+                                    <CheckCircle2 size={12} /> Aktiv
+                                  </span>
+                                ) : (
+                                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                    <XCircle size={12} /> Deaktivert
+                                  </span>
+                                )}
+                                {feed.lastSynced && (
+                                  <span className="text-xs text-muted-foreground ml-2">
+                                    Sist synkronisert: {new Date(feed.lastSynced).toLocaleString('nb-NO')}
+                                  </span>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <Switch 
+                              checked={feed.enabled === true}
+                              onCheckedChange={(checked) => toggleGoogleCalMutation.mutate({ id: feed.id, enabled: checked })}
+                            />
+                            <Button 
+                              variant="ghost" 
+                              size="icon"
+                              onClick={() => setDeleteGoogleCalId(feed.id)}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 size={16} />
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+
+                  <div className="border-t pt-4">
+                    <h4 className="text-sm font-medium mb-4">
+                      {googleFeeds.length > 0 ? "Legg til en ny Google Kalender" : "Legg til din Google Kalender"}
+                    </h4>
+                    
+                    <div className="p-4 bg-muted rounded-lg mb-4">
+                      <h5 className="font-semibold mb-2">Slik gj&oslash;r du det:</h5>
+                      <ol className="list-decimal list-inside space-y-2 text-sm text-muted-foreground">
+                        <li>Gå til <a href="https://calendar.google.com" target="_blank" rel="noopener noreferrer" className="text-primary underline">Google Calendar</a></li>
+                        <li>Lag en ny kalender som heter <strong>HYTTE</strong> (eller et annet navn)</li>
+                        <li>Klikk p&aring; de tre prikkene ved siden av kalendernavnet og velg <strong>&quot;Innstillinger og deling&quot;</strong></li>
+                        <li>Scroll ned til <strong>&quot;Integrer kalender&quot;</strong></li>
+                        <li>Kopier <strong>&quot;Hemmelig adresse i iCal-format&quot;</strong></li>
+                        <li>Lim inn adressen i feltet nedenfor</li>
+                      </ol>
+                    </div>
+
+                    <div className="grid gap-4">
+                      <div className="grid gap-2">
+                        <Label htmlFor="google-cal-name">Kalendernavn</Label>
+                        <Input
+                          id="google-cal-name"
+                          placeholder="HYTTE"
+                          value={googleCalName}
+                          onChange={(e) => setGoogleCalName(e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Gi kalenderen et gjenkjennelig navn, f.eks. &quot;HYTTE&quot;
+                        </p>
+                      </div>
+
+                      <div className="grid gap-2">
+                        <Label htmlFor="google-cal-url">Google Kalender iCal-adresse</Label>
+                        <Input
+                          id="google-cal-url"
+                          placeholder="https://calendar.google.com/calendar/ical/...basic.ics"
+                          value={googleCalUrl}
+                          onChange={(e) => setGoogleCalUrl(e.target.value)}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          Lim inn den hemmelige iCal-adressen fra Google Kalender
+                        </p>
+                      </div>
+
+                      <Button
+                        onClick={() => {
+                          if (!googleCalName.trim()) {
+                            toast({ title: "Feil", description: "Du m&aring; gi kalenderen et navn", variant: "destructive" });
+                            return;
+                          }
+                          if (!googleCalUrl.trim()) {
+                            toast({ title: "Feil", description: "Du m&aring; lime inn Google Kalender-adressen", variant: "destructive" });
+                            return;
+                          }
+                          addGoogleCalMutation.mutate({ name: googleCalName.trim(), url: googleCalUrl.trim() });
+                        }}
+                        disabled={addGoogleCalMutation.isPending || !googleCalUrl.trim() || !googleCalName.trim()}
+                        className="w-full"
+                      >
+                        {addGoogleCalMutation.isPending ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                            Kobler til...
+                          </>
+                        ) : (
+                          <>
+                            <Calendar size={16} className="mr-2" />
+                            Koble til Google Kalender
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="p-3 bg-muted/50 rounded-lg border text-sm text-muted-foreground mt-4">
+                    <p><strong>Hvordan fungerer det?</strong></p>
+                    <ul className="list-disc list-inside mt-1 space-y-1">
+                      <li>Hendelser fra Google Kalender synkroniseres automatisk hvert minutt</li>
+                      <li>Hendelsene vises som r&oslash;de eiersperrer i kalenderen</li>
+                      <li>Alle hendelser merkes med &quot;Importert fra Google Kalender&quot; s&aring; du ser hvor de kommer fra</li>
+                      <li>Du kan legge til hendelser i Google Kalender fra mobilen eller datamaskinen</li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Delete Google Calendar confirmation dialog */}
+                <AlertDialog open={deleteGoogleCalId !== null} onOpenChange={(open) => !open && setDeleteGoogleCalId(null)}>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Fjerne Google Kalender?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Dette vil fjerne koblingen til denne Google Kalenderen. Hendelser som allerede er importert vil bli slettet fra kalenderen din.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Avbryt</AlertDialogCancel>
+                      <AlertDialogAction 
+                        onClick={() => {
+                          if (deleteGoogleCalId) {
+                            deleteGoogleCalMutation.mutate(deleteGoogleCalId);
+                            setDeleteGoogleCalId(null);
+                          }
+                        }}
+                        className="bg-destructive text-destructive-foreground"
+                      >
+                        Fjern
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
               </TabsContent>
 
               {/* Calendar Tab */}

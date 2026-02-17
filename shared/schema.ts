@@ -73,6 +73,7 @@ export const icalFeeds = pgTable("ical_feeds", {
   externalId: text("external_id"), // Ekstern kalender-ID
   apiKey: text("api_key"), // API-nøkkel for autentisering
   syncMethod: text("sync_method").default("ical"), // "ical" eller "api"
+  isGoogleCalendar: boolean("is_google_calendar").default(false),
 });
 
 // Beds24 API konfigurasjon per bruker
@@ -515,6 +516,7 @@ export const insertIcalFeedSchema = z.object({
   color: z.string().optional(),
   enabled: z.boolean().optional(),
   lastSynced: z.date().optional(),
+  isGoogleCalendar: z.boolean().optional(),
 });
 
 export const insertMarkedDaySchema = z.object({

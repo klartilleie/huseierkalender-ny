@@ -216,23 +216,33 @@ async function syncSingleIcalFeed(feedId: number): Promise<void> {
             }
             
             // Oppdater eksisterende hendelse hvis det er endringer
+            const isGoogleCalUpdate = feed.isGoogleCalendar === true || feed.url.includes('calendar.google.com');
+            const updateDesc = event.description ? event.description.toString() : '';
+            const updateGoogleNote = isGoogleCalUpdate ? '[Importert fra Google Kalender]' : '';
+            const updateFullDesc = updateGoogleNote 
+              ? (updateDesc ? `${updateGoogleNote}\n${updateDesc}` : updateGoogleNote)
+              : updateDesc;
+            
             const hasChanged = 
               existingEvent.title !== eventTitle ||
-              existingEvent.description !== sanitizeEventDescription(event.description ? event.description.toString() : null) ||
+              existingEvent.description !== sanitizeEventDescription(updateFullDesc || null) ||
               new Date(existingEvent.startTime).getTime() !== startDate.getTime() ||
-              new Date(existingEvent.endTime).getTime() !== endDate.getTime();
+              new Date(existingEvent.endTime).getTime() !== endDate.getTime() ||
+              (isGoogleCalUpdate && existingEvent.color !== '#ef4444');
             
             if (hasChanged) {
               await storage.updateEvent(existingEvent.id, {
                 title: eventTitle,
-                description: sanitizeEventDescription(event.description ? event.description.toString() : null),
+                description: sanitizeEventDescription(updateFullDesc || null),
                 startTime: startDate,
                 endTime: endDate,
+                color: isGoogleCalUpdate ? '#ef4444' : undefined,
                 source: {
                   type: 'ical',
                   feedId: feedId,
                   uid: uid,
                   url: feed.url,
+                  isGoogleCalendar: isGoogleCalUpdate || undefined,
                   originalData: {
                     location: event.location || null,
                     organizer: event.organizer || null,
@@ -269,18 +279,26 @@ async function syncSingleIcalFeed(feedId: number): Promise<void> {
             }
             
             // Lag ny hendelse
+            const isGoogleCal = feed.isGoogleCalendar === true || feed.url.includes('calendar.google.com');
+            const eventDescription = event.description ? event.description.toString() : '';
+            const googleCalNote = isGoogleCal ? '[Importert fra Google Kalender]' : '';
+            const fullDescription = googleCalNote 
+              ? (eventDescription ? `${googleCalNote}\n${eventDescription}` : googleCalNote)
+              : eventDescription;
+            
             const eventData = {
               title: eventTitle,
-              description: sanitizeEventDescription(event.description ? event.description.toString() : null),
+              description: sanitizeEventDescription(fullDescription || null),
               startTime: startDate,
               endTime: endDate,
-              color: feed.color || '#6366f1',
+              color: isGoogleCal ? '#ef4444' : (feed.color || '#6366f1'),
               allDay: false,
               source: {
                 type: 'ical',
                 feedId: feedId,
                 uid: uid,
                 url: feed.url,
+                isGoogleCalendar: isGoogleCal || undefined,
                 originalData: {
                   location: event.location || null,
                   organizer: event.organizer || null,

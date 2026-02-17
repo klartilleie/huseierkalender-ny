@@ -1425,7 +1425,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.put("/api/ical-feeds/:id", isAdmin, async (req, res) => {
+  app.post("/api/ical-feeds/google-calendar", isAuthenticated, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { name, url } = req.body;
+      
+      if (!name || !url) {
+        return res.status(400).json({ message: "Navn og URL er påkrevd" });
+      }
+
+      if (!url.includes('calendar.google.com') && !url.includes('googleapis.com')) {
+        return res.status(400).json({ message: "URL-en ser ikke ut som en Google Kalender-adresse. Sørg for at du bruker den hemmelige iCal-adressen fra Google Kalender." });
+      }
+
+      try {
+        new URL(url);
+      } catch {
+        return res.status(400).json({ message: "Ugyldig URL-format" });
+      }
+
+      const existingFeeds = await storage.getIcalFeeds(req.user!.id);
+      const duplicate = existingFeeds.find(f => f.url === url);
+      if (duplicate) {
+        return res.status(400).json({ message: "Denne Google Kalender-adressen er allerede lagt til" });
+      }
+
+      const feed = await storage.createIcalFeed(req.user!.id, {
+        name,
+        url,
+        color: '#ef4444',
+        enabled: true,
+        isGoogleCalendar: true,
+      });
+
+      res.status(201).json(feed);
+    } catch (error) {
+      console.error("Failed to add Google Calendar:", error);
+      res.status(500).json({ message: "Kunne ikke legge til Google Kalender" });
+    }
+  });
+
+  app.put("/api/ical-feeds/:id", isAuthenticated, async (req: AuthenticatedRequest, res) => {
     try {
       const feedId = parseInt(req.params.id);
       if (isNaN(feedId)) {
