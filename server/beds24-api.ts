@@ -739,6 +739,55 @@ export class Beds24ApiClient {
    * Create a block/blackout in Beds24 for the specified dates
    * This is used when a user creates a calendar event to block availability
    */
+  async getRoomIdForProperty(): Promise<number | null> {
+    if (!this.accessToken) return null;
+    
+    const propId = (this.overridePropId || this.config?.propId)?.trim();
+    if (!propId) return null;
+    
+    try {
+      const existingEvents = await storage.getEvents(this.userId);
+      for (const event of existingEvents) {
+        if (event.source && typeof event.source === 'object' && 'type' in event.source) {
+          const src = event.source as any;
+          if (src.type === 'beds24' && src.propertyId === propId && src.roomId) {
+            return parseInt(src.roomId);
+          }
+        }
+      }
+      
+      const today = new Date();
+      const futureDate = new Date(today);
+      futureDate.setDate(futureDate.getDate() + 30);
+      
+      const response = await this.v2Instance.get('/inventory/availability', {
+        headers: { 'token': this.accessToken },
+        params: {
+          propertyId: propId,
+          startDate: today.toISOString().split('T')[0],
+          endDate: futureDate.toISOString().split('T')[0]
+        }
+      });
+      
+      let rooms: any[] = [];
+      if (response.data?.data && Array.isArray(response.data.data)) {
+        rooms = response.data.data;
+      } else if (Array.isArray(response.data)) {
+        rooms = response.data;
+      }
+      
+      if (rooms.length > 0) {
+        const roomId = rooms[0].roomId || rooms[0].id;
+        if (roomId) return parseInt(roomId);
+      }
+      
+      return null;
+    } catch (error) {
+      console.warn(`Could not determine roomId for property ${propId}:`, error);
+      return null;
+    }
+  }
+
   async createBlock(startDate: Date, endDate: Date, title?: string): Promise<{ success: boolean; bookingId?: string; error?: string }> {
     if (!this.accessToken) {
       return { success: false, error: 'Beds24 API not initialized - no access token' };
@@ -763,8 +812,18 @@ export class Beds24ApiClient {
       
       console.log(`Creating Beds24 block for user ${this.userId}: ${arrivalDate} to ${departureDate}`);
 
-      const payload = {
-        propertyId: parseInt(this.config.propId),
+      const propId = (this.overridePropId || this.config.propId).trim();
+      
+      const roomId = await this.getRoomIdForProperty();
+      if (!roomId) {
+        return { success: false, error: `Could not determine roomId for property ${propId}` };
+      }
+      
+      console.log(`Using roomId ${roomId} for property ${propId}`);
+      
+      const bookingData: any = {
+        propertyId: parseInt(propId),
+        roomId: roomId,
         arrival: arrivalDate,
         departure: departureDate,
         status: 'black',
@@ -773,6 +832,8 @@ export class Beds24ApiClient {
         numAdult: 0,
         numChild: 0
       };
+
+      const payload = [bookingData];
 
       console.log('Beds24 block payload:', JSON.stringify(payload));
 
@@ -784,15 +845,22 @@ export class Beds24ApiClient {
 
       console.log('Beds24 block response:', JSON.stringify(response.data));
 
-      if (response.data && (response.data.id || response.data.bookId)) {
-        const bookingId = (response.data.id || response.data.bookId).toString();
+      const responseData = Array.isArray(response.data) ? response.data[0] : response.data;
+
+      const bookingId = responseData?.new?.id || responseData?.id || responseData?.bookId;
+      if (responseData?.success && bookingId) {
         console.log(`Successfully created Beds24 block with ID: ${bookingId}`);
-        return { success: true, bookingId };
+        return { success: true, bookingId: bookingId.toString() };
       }
 
-      if (response.data && response.data.error) {
-        console.error('Beds24 block error:', response.data.error);
-        return { success: false, error: response.data.error };
+      if (bookingId) {
+        console.log(`Successfully created Beds24 block with ID: ${bookingId}`);
+        return { success: true, bookingId: bookingId.toString() };
+      }
+
+      if (responseData && responseData.error) {
+        console.error('Beds24 block error:', responseData.error);
+        return { success: false, error: responseData.error };
       }
 
       return { success: true };
@@ -856,14 +924,15 @@ export class Beds24ApiClient {
       
       console.log(`Updating Beds24 block ${bookingId} for user ${this.userId}: ${arrivalDate} to ${departureDate}`);
 
-      const payload = {
+      const payload = [{
+        id: parseInt(bookingId),
         arrival: arrivalDate,
         departure: departureDate,
         firstName: title || 'Eier',
         lastName: 'Sperre'
-      };
+      }];
 
-      const response = await this.v2Instance.put(`/bookings/${bookingId}`, payload, {
+      const response = await this.v2Instance.put(`/bookings`, payload, {
         headers: {
           'token': this.accessToken
         }
@@ -1485,19 +1554,19 @@ export async function syncAllBeds24Calendars(): Promise<void> {
  * Schedule automatic Beds24 sync
  */
 export function scheduleBeds24Sync(): NodeJS.Timeout {
-  // Run every 1 minute for frequent sync
-  const interval = 60 * 1000; // 1 minute in milliseconds
+  // Run every 5 minutes to avoid API rate limits
+  const interval = 5 * 60 * 1000; // 5 minutes in milliseconds
   
   const timer = setInterval(async () => {
     await syncAllBeds24Calendars();
   }, interval);
   
-  // Run initial sync after 30 seconds to let system start up
+  // Run initial sync after 60 seconds to let system start up and avoid rate limits
   setTimeout(async () => {
     await syncAllBeds24Calendars();
-  }, 30000);
+  }, 60000);
   
-  console.log('Scheduled automatic Beds24 sync (every 1 minute)');
+  console.log('Scheduled automatic Beds24 sync (every 5 minutes)');
   
   return timer;
 }

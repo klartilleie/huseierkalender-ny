@@ -3997,28 +3997,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const event = await storage.createEvent(userId, eventData);
       
-      // Send blokkering til Beds24 hvis brukeren har Beds24-konfigurasjon
+      // Send blokkering til Beds24 for alle brukerens eiendommer
       try {
-        const beds24Client = new Beds24ApiClient(userId);
-        const initialized = await beds24Client.initialize();
+        const userProperties = await storage.getUserProperties(userId);
+        const beds24Config = await storage.getBeds24Config(userId);
         
-        if (initialized) {
+        if (beds24Config) {
           const startDate = new Date(eventData.startTime);
           const endDate = new Date(eventData.endTime);
           
-          const result = await beds24Client.createBlock(startDate, endDate, eventData.title);
+          // Determine which properties to sync to
+          const propertiesToSync: string[] = [];
           
-          if (result.success && result.bookingId) {
-            console.log(`Created Beds24 block ${result.bookingId} for event ${event.id}`);
-            
+          if (eventData.propertyId && userProperties.length > 0) {
+            // If event has a specific property_id, sync to that property
+            const prop = userProperties.find(p => p.id === eventData.propertyId);
+            if (prop) {
+              propertiesToSync.push(prop.beds24PropId);
+            }
+          }
+          
+          if (propertiesToSync.length === 0 && userProperties.length > 0) {
+            // Sync to all active user properties
+            for (const prop of userProperties) {
+              if (prop.isActive) {
+                propertiesToSync.push(prop.beds24PropId);
+              }
+            }
+          }
+          
+          if (propertiesToSync.length === 0 && beds24Config.propId) {
+            // Fallback to config propId
+            propertiesToSync.push(beds24Config.propId);
+          }
+          
+          const beds24BookingIds: string[] = [];
+          
+          for (const propId of propertiesToSync) {
+            try {
+              const beds24Client = new Beds24ApiClient(userId, propId);
+              const initialized = await beds24Client.initialize();
+              
+              if (initialized) {
+                const result = await beds24Client.createBlock(startDate, endDate, eventData.title);
+                
+                if (result.success && result.bookingId) {
+                  console.log(`Created Beds24 block ${result.bookingId} for event ${event.id} on property ${propId}`);
+                  beds24BookingIds.push(result.bookingId);
+                } else if (!result.success) {
+                  console.warn(`Could not create Beds24 block for event ${event.id} on property ${propId}: ${result.error}`);
+                }
+              }
+            } catch (propError) {
+              console.warn(`Beds24 block creation failed for property ${propId}:`, propError);
+            }
+          }
+          
+          if (beds24BookingIds.length > 0) {
             await storage.updateEvent(event.id, {
               source: {
                 type: 'local_with_beds24',
-                beds24BookingId: result.bookingId
+                beds24BookingIds: beds24BookingIds,
+                beds24BookingId: beds24BookingIds[0]
               }
             });
-          } else if (!result.success) {
-            console.warn(`Could not create Beds24 block for event ${event.id}: ${result.error}`);
           }
         }
       } catch (beds24Error) {
@@ -5600,6 +5642,144 @@ export async function registerRoutes(app: Express): Promise<Server> {
         error: errorMessage,
         details: error.response?.data || null
       });
+    }
+  });
+
+  // POST /api/admin/beds24-sync-local-blocks - Sync all local owner blocks to Beds24
+  app.post("/api/admin/beds24-sync-local-blocks", isAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { Beds24ApiClient } = await import("./beds24-api");
+      
+      const allConfigs = await storage.getAllBeds24Configs();
+      const results: any[] = [];
+      
+      for (const config of allConfigs) {
+        if (!config.syncEnabled || config.propId === 'master') continue;
+        
+        const userId = config.userId;
+        const userEvents = await storage.getEvents(userId);
+        
+        const localBlocks = userEvents.filter(e => {
+          if (e.color !== '#ef4444') return false;
+          if (!e.source) return true;
+          if (typeof e.source === 'object' && 'type' in e.source) {
+            const srcType = (e.source as any).type;
+            if (srcType === 'local_with_beds24' || srcType === 'beds24') return false;
+          }
+          return true;
+        });
+        
+        if (localBlocks.length === 0) continue;
+        
+        const futureBlocks = localBlocks.filter(e => {
+          const endDate = new Date(e.endTime);
+          return endDate > new Date();
+        });
+        
+        if (futureBlocks.length === 0) continue;
+        
+        const userProperties = await storage.getUserProperties(userId);
+        const propertiesToSync: string[] = [];
+        
+        if (userProperties.length > 0) {
+          for (const prop of userProperties) {
+            if (prop.isActive) propertiesToSync.push(prop.beds24PropId);
+          }
+        }
+        if (propertiesToSync.length === 0 && config.propId) {
+          propertiesToSync.push(config.propId);
+        }
+        
+        let synced = 0;
+        let failed = 0;
+        
+        for (const block of futureBlocks) {
+          const startDate = new Date(block.startTime);
+          const endDate = new Date(block.endTime);
+          const beds24BookingIds: string[] = [];
+          
+          for (const propId of propertiesToSync) {
+            try {
+              const client = new Beds24ApiClient(userId, propId);
+              const initialized = await client.initialize();
+              
+              if (initialized) {
+                const result = await client.createBlock(startDate, endDate, block.title);
+                if (result.success) {
+                  if (result.bookingId) {
+                    beds24BookingIds.push(result.bookingId);
+                  }
+                  console.log(`Synced local block ${block.id} to Beds24 property ${propId}: ${result.bookingId || 'no-id'}`);
+                } else {
+                  console.warn(`Failed to sync block ${block.id} to property ${propId}: ${result.error}`);
+                  failed++;
+                }
+              }
+              await new Promise(resolve => setTimeout(resolve, 2000));
+            } catch (err) {
+              console.warn(`Error syncing block ${block.id} to property ${propId}:`, err);
+              failed++;
+            }
+          }
+          
+          if (beds24BookingIds.length > 0) {
+            await storage.updateEvent(block.id, {
+              source: {
+                type: 'local_with_beds24',
+                beds24BookingIds: beds24BookingIds,
+                beds24BookingId: beds24BookingIds[0]
+              }
+            });
+          }
+          synced++;
+        }
+        
+        results.push({
+          userId,
+          userName: (await storage.getUser(userId))?.name || 'Unknown',
+          totalBlocks: futureBlocks.length,
+          synced,
+          failed
+        });
+      }
+      
+      res.json({ message: "Local blocks synced to Beds24", results });
+    } catch (error: any) {
+      console.error("Error syncing local blocks to Beds24:", error);
+      res.status(500).json({ message: "Failed to sync local blocks", error: error.message });
+    }
+  });
+
+  // Admin endpoint to delete specific Beds24 booking IDs (for cleanup)
+  app.post("/api/admin/beds24-delete-bookings", isAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const { bookingIds, userId } = req.body;
+      if (!bookingIds || !Array.isArray(bookingIds) || !userId) {
+        return res.status(400).json({ message: "bookingIds (array) and userId required" });
+      }
+      
+      const { Beds24ApiClient } = await import("./beds24-api");
+      const client = new Beds24ApiClient(userId);
+      const initialized = await client.initialize();
+      
+      if (!initialized) {
+        return res.status(400).json({ message: "Could not initialize Beds24 for user" });
+      }
+      
+      const results: any[] = [];
+      for (const bookingId of bookingIds) {
+        try {
+          const result = await client.deleteBlock(bookingId.toString());
+          results.push({ bookingId, ...result });
+          await new Promise(resolve => setTimeout(resolve, 1500));
+        } catch (err: any) {
+          results.push({ bookingId, success: false, error: err.message });
+        }
+      }
+      
+      res.json({ message: "Deletion complete", results });
+    } catch (error: any) {
+      res.status(500).json({ message: "Failed to delete bookings", error: error.message });
     }
   });
 
