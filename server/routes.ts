@@ -5889,7 +5889,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/admin/payouts/:id", isAdmin, async (req: AuthenticatedRequest, res) => {
     try {
       const payoutId = parseInt(req.params.id);
-      const payout = await storage.updatePayout(payoutId, req.body);
+      const raw = req.body;
+      const updateData: any = {};
+      if (raw.amount !== undefined) updateData.amount = String(raw.amount);
+      if (raw.status !== undefined) updateData.status = raw.status;
+      if (raw.notes !== undefined) updateData.notes = raw.notes || null;
+      if (raw.rentalDays !== undefined) updateData.rentalDays = raw.rentalDays !== null && raw.rentalDays !== "" ? parseInt(raw.rentalDays) : null;
+      if (raw.paidDate !== undefined) updateData.paidDate = raw.paidDate ? new Date(raw.paidDate) : null;
+      if (raw.month !== undefined) updateData.month = parseInt(raw.month);
+      if (raw.year !== undefined) updateData.year = parseInt(raw.year);
+      if (raw.currency !== undefined) updateData.currency = raw.currency;
+      
+      const payout = await storage.updatePayout(payoutId, updateData);
       if (!payout) {
         res.status(404).json({ message: "Payout not found" });
         return;
@@ -6302,7 +6313,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.patch("/api/admin/booking-payouts/:id", isAdmin, async (req: AuthenticatedRequest, res) => {
     try {
       const id = parseInt(req.params.id);
-      const payout = await storage.updateBookingPayout(id, req.body);
+      const raw = req.body;
+      const updateData: any = {};
+      if (raw.status !== undefined) updateData.status = raw.status;
+      if (raw.notes !== undefined) updateData.notes = raw.notes || null;
+      if (raw.adminAmount !== undefined) updateData.adminAmount = raw.adminAmount ? String(raw.adminAmount) : null;
+      if (raw.isOverridden !== undefined) updateData.isOverridden = raw.isOverridden === true;
+      if (raw.calculatedAmount !== undefined) updateData.calculatedAmount = String(raw.calculatedAmount);
+      
+      const payout = await storage.updateBookingPayout(id, updateData);
       
       if (!payout) {
         res.status(404).json({ message: "Booking payout not found" });
@@ -6346,7 +6365,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const results = [];
       
-      for (const payoutData of payouts) {
+      for (const raw of payouts) {
+        const payoutData: any = {
+          userId: parseInt(raw.userId),
+          propertyId: raw.propertyId ? parseInt(raw.propertyId) : null,
+          bookingId: String(raw.bookingId),
+          month: parseInt(raw.month),
+          year: parseInt(raw.year),
+          guestName: raw.guestName || null,
+          propertyName: raw.propertyName || null,
+          checkIn: raw.checkIn ? new Date(raw.checkIn) : null,
+          checkOut: raw.checkOut ? new Date(raw.checkOut) : null,
+          nights: parseInt(raw.nights),
+          pricePerNight: String(raw.pricePerNight),
+          discountPercent: String(raw.discountPercent),
+          calculatedAmount: String(raw.calculatedAmount),
+          adminAmount: raw.adminAmount ? String(raw.adminAmount) : null,
+          isOverridden: raw.isOverridden === true,
+          status: raw.status || "pending",
+          notes: raw.notes || null,
+        };
+        
         // Check if booking payout already exists
         const existing = await storage.getBookingPayoutByBookingId(payoutData.bookingId);
         
