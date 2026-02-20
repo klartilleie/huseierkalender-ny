@@ -5974,10 +5974,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const source = event.source as any;
         const status = (source?.status ?? 'unknown').toLowerCase();
         
-        // Denylist approach: Only exclude events that definitely don't generate revenue
-        // This ensures we don't accidentally exclude valid bookings with unknown statuses
-        const nonRevenueStatuses = ['cancelled', 'black', 'blocked', 'canceled'];
-        if (nonRevenueStatuses.includes(status)) {
+        // Allowlist approach: Only include events with valid booking statuses
+        const revenueStatuses = ['new', 'confirmed', 'arrived', 'checkedin', 'checkout', 'checked-out'];
+        if (!revenueStatuses.includes(status)) {
+          return false;
+        }
+        
+        // Exclude non-booking events by color:
+        // Yellow (#eab308) = blocks/inquiries, Red (#ef4444) = local owner blocks
+        // Only include green (#16a34a) booking events
+        const eventColor = (event.color || '').toLowerCase();
+        if (eventColor === '#eab308' || eventColor === '#ef4444') {
+          return false;
+        }
+        if (eventColor !== '#16a34a' && eventColor !== '') {
           return false;
         }
         
@@ -6413,6 +6423,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error batch saving booking payouts:", error);
       res.status(500).json({ message: "Failed to save booking payouts" });
+    }
+  });
+
+  // ============ UNIFIED PAYOUT OVERVIEW ENDPOINTS ============
+  
+  const MONTH_NAMES = ['Januar', 'Februar', 'Mars', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Desember'];
+  
+  async function buildPayoutOverview(userId: number, year: number) {
+    const manualPayouts = await storage.getPayoutsByYear(userId, year);
+    const months = [];
+    
+    for (let m = 1; m <= 12; m++) {
+      const bookingPayoutsList = await storage.getBookingPayouts(userId, m, year);
+      
+      const totalBookingAmount = bookingPayoutsList.reduce((sum, bp) => {
+        const amount = bp.isOverridden && bp.adminAmount 
+          ? parseFloat(bp.adminAmount) 
+          : parseFloat(bp.calculatedAmount || "0");
+        return sum + amount;
+      }, 0);
+      
+      const manualPayout = manualPayouts.find(p => p.month === m) || null;
+      const manualAmount = manualPayout ? parseFloat(manualPayout.amount || "0") : 0;
+      const manualStatus = manualPayout?.status || null;
+      const manualNotes = manualPayout?.notes || null;
+      
+      const offsetAmount = manualStatus === 'offset' ? Math.abs(manualAmount) : 0;
+      const netAmount = totalBookingAmount - offsetAmount;
+      
+      let finalStatus = 'pending';
+      if (manualPayout) {
+        finalStatus = manualPayout.status;
+      } else if (totalBookingAmount > 0) {
+        finalStatus = 'pending';
+      } else {
+        finalStatus = 'none';
+      }
+      
+      months.push({
+        month: m,
+        monthName: MONTH_NAMES[m - 1],
+        bookingPayouts: bookingPayoutsList,
+        totalBookingAmount,
+        manualPayout,
+        manualAmount,
+        manualStatus,
+        manualNotes,
+        netAmount,
+        finalStatus
+      });
+    }
+    
+    return months;
+  }
+  
+  app.get("/api/admin/payouts/overview/:userId/:year", hasAdminAccess, async (req: AuthenticatedRequest, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const year = parseInt(req.params.year);
+      
+      if (isNaN(userId) || isNaN(year)) {
+        res.status(400).json({ message: "Invalid userId or year" });
+        return;
+      }
+      
+      const months = await buildPayoutOverview(userId, year);
+      res.json({ userId, year, months });
+    } catch (error) {
+      console.error("Error fetching admin payout overview:", error);
+      res.status(500).json({ message: "Failed to fetch payout overview" });
+    }
+  });
+  
+  app.get("/api/user/payouts/overview/:year", isAuthenticated, async (req: AuthenticatedRequest, res) => {
+    try {
+      const year = parseInt(req.params.year);
+      
+      if (isNaN(year)) {
+        res.status(400).json({ message: "Invalid year" });
+        return;
+      }
+      
+      const months = await buildPayoutOverview(req.user!.id, year);
+      res.json({ userId: req.user!.id, year, months });
+    } catch (error) {
+      console.error("Error fetching user payout overview:", error);
+      res.status(500).json({ message: "Failed to fetch payout overview" });
     }
   });
 

@@ -1,11 +1,7 @@
 import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useAuth } from "@/hooks/use-auth";
-import { useToast } from "@/hooks/use-toast";
 import Layout from "@/components/Layout";
-import { format } from "date-fns";
-import { nb } from "date-fns/locale";
-import { Payout } from "@shared/schema";
 import {
   Card,
   CardContent,
@@ -13,15 +9,6 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCaption,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
 import {
   Select,
   SelectContent,
@@ -34,11 +21,11 @@ import { Label } from "@/components/ui/label";
 import { 
   DollarSign, 
   Check,
-  X,
   Clock,
-  Calendar,
   TrendingUp,
-  CreditCard
+  CreditCard,
+  ChevronDown,
+  ChevronUp
 } from "lucide-react";
 
 const MONTHS = [
@@ -56,15 +43,40 @@ const MONTHS = [
   { value: 12, label: "Desember" },
 ];
 
+const formatCurrency = (n: number) => n.toLocaleString('nb-NO') + ' kr';
+
 export default function PayoutsPage() {
   const { user } = useAuth();
-  const { toast } = useToast();
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
+  const [expandedMonth, setExpandedMonth] = useState<number | null>(null);
 
-  // Fetch user's own payouts for selected year
-  const { data: payouts, isLoading } = useQuery<Payout[]>({
-    queryKey: [`/api/user/payouts/year/${selectedYear}`],
+  const { data: overview, isLoading } = useQuery<{
+    userId: number;
+    year: number;
+    months: Array<{
+      month: number;
+      monthName: string;
+      bookingPayouts: Array<{
+        id: number;
+        guestName: string | null;
+        checkIn: string | null;
+        checkOut: string | null;
+        nights: number;
+        calculatedAmount: string;
+        adminAmount: string | null;
+        isOverridden: boolean;
+      }>;
+      totalBookingAmount: number;
+      manualPayout: any;
+      manualAmount: number;
+      manualStatus: string | null;
+      manualNotes: string | null;
+      netAmount: number;
+      finalStatus: string;
+    }>;
+  }>({
+    queryKey: [`/api/user/payouts/overview/${selectedYear}`],
     enabled: !!user,
   });
 
@@ -73,48 +85,43 @@ export default function PayoutsPage() {
       case "paid":
         return <Badge className="bg-green-500"><Check className="h-3 w-3 mr-1" />Betalt</Badge>;
       case "sent":
-        return <Badge className="bg-blue-500"><Check className="h-3 w-3 mr-1" />Utbetaling sendt</Badge>;
+        return <Badge className="bg-blue-500"><Check className="h-3 w-3 mr-1" />Sendt</Badge>;
       case "pending":
         return <Badge className="bg-yellow-500"><Clock className="h-3 w-3 mr-1" />Venter</Badge>;
       case "offset":
-        return <Badge className="bg-orange-500"><DollarSign className="h-3 w-3 mr-1" />Motregner</Badge>;
+        return <Badge className="bg-orange-500"><DollarSign className="h-3 w-3 mr-1" />Motregning</Badge>;
+      case "none":
+        return <Badge variant="outline">Ingen data</Badge>;
       default:
-        return <Badge>{status}</Badge>;
+        return <Badge variant="outline">{status}</Badge>;
     }
   };
 
-  // Calculate yearly overview
-  const yearlyOverview = React.useMemo(() => {
-    if (!payouts) return null;
+  const totals = React.useMemo(() => {
+    if (!overview?.months) return { earned: 0, paid: 0, pending: 0, adjustments: 0 };
     
-    const overview = MONTHS.map(month => {
-      const payout = payouts.find(p => p.month === month.value);
-      return {
-        month: month.label,
-        amount: payout?.amount || 0,
-        status: payout?.status || null,
-        notes: payout?.notes || null,
-      };
-    });
+    const earned = overview.months.reduce((s, m) => s + m.totalBookingAmount, 0);
+    const paid = overview.months
+      .filter(m => m.finalStatus === 'paid' || m.finalStatus === 'sent')
+      .reduce((s, m) => s + m.netAmount, 0);
+    const pending = overview.months
+      .filter(m => m.finalStatus === 'pending' && m.totalBookingAmount > 0)
+      .reduce((s, m) => s + m.netAmount, 0);
+    const adjustments = overview.months
+      .filter(m => m.manualStatus === 'offset')
+      .reduce((s, m) => s + Math.abs(m.manualAmount), 0);
     
-    const total = payouts.reduce((sum, p) => sum + parseFloat(p.amount || "0"), 0);
-    const paid = payouts.filter(p => p.status === "paid").reduce((sum, p) => sum + parseFloat(p.amount || "0"), 0);
-    const sent = payouts.filter(p => p.status === "sent").reduce((sum, p) => sum + parseFloat(p.amount || "0"), 0);
-    const pending = payouts.filter(p => p.status === "pending").reduce((sum, p) => sum + parseFloat(p.amount || "0"), 0);
-    const offset = payouts.filter(p => p.status === "offset").reduce((sum, p) => sum + Math.abs(parseFloat(p.amount || "0")), 0);
-    
-    return { overview, total, paid, sent, pending, offset };
-  }, [payouts]);
+    return { earned, paid, pending, adjustments };
+  }, [overview]);
 
   return (
     <Layout>
-      <div className="container mx-auto py-10">
-        <div className="mb-8">
+      <div className="container mx-auto py-6 px-4">
+        <div className="mb-6">
           <h1 className="text-3xl font-bold">Mine Utbetalinger</h1>
-          <p className="text-muted-foreground mt-2">Oversikt over dine månedlige utbetalinger</p>
+          <p className="text-muted-foreground mt-1">Oversikt over dine månedlige utbetalinger</p>
         </div>
 
-        {/* Year selector */}
         <div className="mb-6">
           <Label>Velg år</Label>
           <Select value={selectedYear.toString()} onValueChange={(value) => setSelectedYear(parseInt(value))}>
@@ -131,153 +138,134 @@ export default function PayoutsPage() {
           </Select>
         </div>
 
-        {/* Summary Cards */}
-        {yearlyOverview && (
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Netto {selectedYear}
-                </CardTitle>
-                <TrendingUp className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className={`text-2xl font-bold ${yearlyOverview.total < 0 ? "text-red-600" : ""}`}>
-                  {yearlyOverview.total.toFixed(2)} NOK
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Total etter motregning
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Utbetalt
-                </CardTitle>
-                <CreditCard className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-green-600">
-                  {(yearlyOverview.paid + yearlyOverview.sent).toFixed(2)} NOK
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Betalt + Sendt
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Venter
-                </CardTitle>
-                <Clock className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-yellow-600">{yearlyOverview.pending.toFixed(2)} NOK</div>
-                <p className="text-xs text-muted-foreground">
-                  Venter på utbetaling
-                </p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">
-                  Motregner
-                </CardTitle>
-                <DollarSign className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold text-orange-600">-{yearlyOverview.offset.toFixed(2)} NOK</div>
-                <p className="text-xs text-muted-foreground">
-                  Negativ balanse
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-        )}
+        {isLoading && <p className="text-muted-foreground">Laster...</p>}
 
-        {/* Monthly Overview Grid */}
-        {yearlyOverview && (
-          <Card className="mb-8">
-            <CardHeader>
-              <CardTitle>Månedsoversikt {selectedYear}</CardTitle>
-              <CardDescription>
-                Status for hver måned i året
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                {yearlyOverview.overview.map((month, index) => (
-                  <div key={index} className="border rounded-lg p-4">
-                    <div className="font-medium text-sm mb-1">{month.month}</div>
-                    <div className="text-2xl font-bold">
-                      {month.amount ? `${parseFloat(month.amount.toString()).toFixed(0)},-` : "-"}
+        {overview && (
+          <>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-8">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Totalt opptjent</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatCurrency(totals.earned)}</div>
+                  <p className="text-xs text-muted-foreground">Fra bookinger i {selectedYear}</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Utbetalt</CardTitle>
+                  <CreditCard className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-green-600">{formatCurrency(totals.paid)}</div>
+                  <p className="text-xs text-muted-foreground">Betalt / sendt</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Venter</CardTitle>
+                  <Clock className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-yellow-600">{formatCurrency(totals.pending)}</div>
+                  <p className="text-xs text-muted-foreground">Venter på utbetaling</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Justeringer</CardTitle>
+                  <DollarSign className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold text-orange-600">-{formatCurrency(totals.adjustments)}</div>
+                  <p className="text-xs text-muted-foreground">Motregninger</p>
+                </CardContent>
+              </Card>
+            </div>
+
+            <Card>
+              <CardHeader>
+                <CardTitle>Månedsoversikt {selectedYear}</CardTitle>
+                <CardDescription>Klikk på en måned for å se bookingdetaljer</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {overview.months.map((month) => (
+                    <div 
+                      key={month.month} 
+                      className={`border rounded-lg p-4 cursor-pointer transition-all hover:shadow-md ${expandedMonth === month.month ? 'ring-2 ring-primary' : ''}`}
+                      onClick={() => setExpandedMonth(expandedMonth === month.month ? null : month.month)}
+                    >
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="font-semibold">{month.monthName}</span>
+                        <div className="flex items-center gap-2">
+                          {getStatusBadge(month.finalStatus)}
+                          {month.bookingPayouts.length > 0 && (
+                            expandedMonth === month.month 
+                              ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
+                              : <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                          )}
+                        </div>
+                      </div>
+                      
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-sm">
+                          <span className="text-muted-foreground">Bookinger:</span>
+                          <span className="font-medium">{formatCurrency(month.totalBookingAmount)}</span>
+                        </div>
+                        {month.manualStatus === 'offset' && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Justering:</span>
+                            <span className="font-medium text-orange-600">-{formatCurrency(Math.abs(month.manualAmount))}</span>
+                          </div>
+                        )}
+                        <div className="flex justify-between text-sm border-t pt-1">
+                          <span className="text-muted-foreground font-medium">Netto:</span>
+                          <span className="font-bold">{formatCurrency(month.netAmount)}</span>
+                        </div>
+                        {month.manualNotes && (
+                          <div className="text-xs text-muted-foreground mt-1 truncate" title={month.manualNotes}>
+                            {month.manualNotes}
+                          </div>
+                        )}
+                      </div>
+
+                      {expandedMonth === month.month && month.bookingPayouts.length > 0 && (
+                        <div className="mt-3 pt-3 border-t space-y-2">
+                          <p className="text-xs font-semibold text-muted-foreground uppercase">Bookingdetaljer</p>
+                          {month.bookingPayouts.map((bp) => {
+                            const amount = bp.isOverridden && bp.adminAmount
+                              ? parseFloat(bp.adminAmount)
+                              : parseFloat(bp.calculatedAmount || "0");
+                            return (
+                              <div key={bp.id} className="text-sm bg-slate-50 rounded p-2">
+                                <div className="flex justify-between">
+                                  <span className="font-medium">{bp.guestName || 'Ukjent gjest'}</span>
+                                  <span className="font-mono">{formatCurrency(amount)}</span>
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                  {bp.checkIn ? new Date(bp.checkIn).toLocaleDateString('nb-NO') : '?'} – {bp.checkOut ? new Date(bp.checkOut).toLocaleDateString('nb-NO') : '?'} · {bp.nights} netter
+                                  {bp.isOverridden && <Badge variant="outline" className="ml-2 text-[10px]">Justert</Badge>}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {expandedMonth === month.month && month.bookingPayouts.length === 0 && (
+                        <div className="mt-3 pt-3 border-t">
+                          <p className="text-xs text-muted-foreground">Ingen bookinger registrert denne måneden</p>
+                        </div>
+                      )}
                     </div>
-                    {month.status && (
-                      <div className="mt-2">
-                        {getStatusBadge(month.status)}
-                      </div>
-                    )}
-                    {month.notes && (
-                      <div className="mt-2 text-xs text-muted-foreground truncate" title={month.notes}>
-                        {month.notes}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </>
         )}
-
-        {/* Detailed Table */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Detaljert oversikt</CardTitle>
-            <CardDescription>
-              Alle registrerte utbetalinger for {selectedYear}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableCaption>
-                {isLoading ? "Laster..." : `${payouts?.length || 0} utbetalinger funnet`}
-              </TableCaption>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Måned</TableHead>
-                  <TableHead className="text-right">Beløp</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Notater</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {payouts?.map((payout) => (
-                  <TableRow key={payout.id}>
-                    <TableCell className="font-medium">
-                      {MONTHS.find(m => m.value === payout.month)?.label} {payout.year}
-                    </TableCell>
-                    <TableCell className="text-right font-mono">
-                      {parseFloat(payout.amount || "0").toFixed(2)} {payout.currency}
-                    </TableCell>
-                    <TableCell>{getStatusBadge(payout.status)}</TableCell>
-                    <TableCell className="max-w-xs truncate" title={payout.notes || ""}>
-                      {payout.notes || "-"}
-                    </TableCell>
-                  </TableRow>
-                ))}
-                {(!payouts || payouts.length === 0) && !isLoading && (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground">
-                      Ingen utbetalinger registrert for {selectedYear}
-                    </TableCell>
-                  </TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
       </div>
     </Layout>
   );
