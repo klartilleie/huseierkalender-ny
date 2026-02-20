@@ -5863,10 +5863,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Create a new payout
   app.post("/api/admin/payouts", isAdmin, async (req: AuthenticatedRequest, res) => {
     try {
-      const payoutData = {
-        ...req.body,
-        registeredById: req.user!.id
+      const raw = req.body;
+      const payoutData: any = {
+        userId: parseInt(raw.userId),
+        month: parseInt(raw.month),
+        year: parseInt(raw.year),
+        amount: String(raw.amount),
+        currency: raw.currency || "NOK",
+        status: raw.status || "pending",
+        notes: raw.notes || null,
+        rentalDays: raw.rentalDays !== undefined && raw.rentalDays !== null && raw.rentalDays !== "" ? parseInt(raw.rentalDays) : null,
+        paidDate: raw.paidDate ? new Date(raw.paidDate) : null,
+        registeredById: req.user!.id,
       };
+      console.log("Creating payout with data:", JSON.stringify(payoutData));
       const payout = await storage.createPayout(payoutData);
       res.json(payout);
     } catch (error) {
