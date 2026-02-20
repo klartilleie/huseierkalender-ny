@@ -6212,19 +6212,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Admin: Save/create booking payouts (initial calculation save)
   app.post("/api/admin/booking-payouts", isAdmin, async (req: AuthenticatedRequest, res) => {
     try {
-      const payoutData = req.body;
+      const raw = req.body;
+      
+      const payoutData: any = {
+        userId: parseInt(raw.userId),
+        propertyId: raw.propertyId ? parseInt(raw.propertyId) : null,
+        bookingId: String(raw.bookingId),
+        month: parseInt(raw.month),
+        year: parseInt(raw.year),
+        guestName: raw.guestName || null,
+        propertyName: raw.propertyName || null,
+        checkIn: raw.checkIn ? new Date(raw.checkIn) : null,
+        checkOut: raw.checkOut ? new Date(raw.checkOut) : null,
+        nights: parseInt(raw.nights),
+        pricePerNight: String(raw.pricePerNight),
+        discountPercent: String(raw.discountPercent),
+        calculatedAmount: String(raw.calculatedAmount),
+        adminAmount: raw.adminAmount ? String(raw.adminAmount) : null,
+        isOverridden: raw.isOverridden === true,
+        status: raw.status || "pending",
+        notes: raw.notes || null,
+      };
+      
+      if (raw.isOverridden) {
+        payoutData.overriddenById = req.user!.id;
+        payoutData.overriddenAt = new Date();
+      }
       
       // Check if booking payout already exists
       const existing = await storage.getBookingPayoutByBookingId(payoutData.bookingId);
       
       if (existing) {
-        // If already overridden by admin, don't update
-        if (existing.isOverridden) {
-          res.json(existing);
-          return;
-        }
-        
-        // Update existing
+        // Update existing - allow override even if previously overridden
         const updated = await storage.updateBookingPayout(existing.id, payoutData);
         res.json(updated);
       } else {
