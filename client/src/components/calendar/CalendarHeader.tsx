@@ -414,3 +414,22 @@ export default function CalendarHeader({
     </div>
   );
 }
+
+export function ColorLegend() {
+  return (
+    <div className="flex items-center gap-4 px-4 py-1.5 text-xs text-slate-600">
+      <div className="flex items-center gap-1.5">
+        <span className="inline-block w-3 h-3 rounded" style={{ backgroundColor: '#ef4444' }} />
+        <span>Eierblokkeringer</span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span className="inline-block w-3 h-3 rounded" style={{ backgroundColor: '#16a34a' }} />
+        <span>Bookinger</span>
+      </div>
+      <div className="flex items-center gap-1.5">
+        <span className="inline-block w-3 h-3 rounded" style={{ backgroundColor: '#eab308' }} />
+        <span>Sperrer/blokkeringer</span>
+      </div>
+    </div>
+  );
+}

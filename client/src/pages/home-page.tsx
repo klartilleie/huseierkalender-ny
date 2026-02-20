@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import CalendarHeader from "@/components/calendar/CalendarHeader";
+import CalendarHeader, { ColorLegend } from "@/components/calendar/CalendarHeader";
 import MonthView from "@/components/calendar/MonthView";
 import WeekView from "@/components/calendar/WeekView";
 import DayView from "@/components/calendar/DayView";
@@ -308,6 +308,7 @@ export default function HomePage() {
             selectedPropertyId={selectedPropertyId}
             onPropertyChange={handlePropertyChange}
           />
+          <ColorLegend />
           
           {calendarSize === "compact" ? (
             <CompactYearView 
