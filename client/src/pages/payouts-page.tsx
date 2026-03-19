@@ -68,6 +68,17 @@ export default function PayoutsPage() {
         isOverridden: boolean;
       }>;
       totalBookingAmount: number;
+      manualPayouts: Array<{
+        id: number;
+        amount: string;
+        status: string;
+        notes: string | null;
+        rentalDays: number | null;
+      }>;
+      totalManualPaid: number;
+      totalManualOffset: number;
+      totalManualPending: number;
+      totalIncome: number;
       manualPayout: any;
       manualAmount: number;
       manualStatus: string | null;
@@ -100,16 +111,10 @@ export default function PayoutsPage() {
   const totals = React.useMemo(() => {
     if (!overview?.months) return { earned: 0, paid: 0, pending: 0, adjustments: 0 };
     
-    const earned = overview.months.reduce((s, m) => s + m.totalBookingAmount, 0);
-    const paid = overview.months
-      .filter(m => m.finalStatus === 'paid' || m.finalStatus === 'sent')
-      .reduce((s, m) => s + m.netAmount, 0);
-    const pending = overview.months
-      .filter(m => m.finalStatus === 'pending' && m.totalBookingAmount > 0)
-      .reduce((s, m) => s + m.netAmount, 0);
-    const adjustments = overview.months
-      .filter(m => m.manualStatus === 'offset')
-      .reduce((s, m) => s + Math.abs(m.manualAmount), 0);
+    const earned = overview.months.reduce((s, m) => s + m.totalIncome, 0);
+    const paid = overview.months.reduce((s, m) => s + m.totalManualPaid, 0);
+    const pending = overview.months.reduce((s, m) => s + m.totalManualPending + m.totalBookingAmount, 0);
+    const adjustments = overview.months.reduce((s, m) => s + m.totalManualOffset, 0);
     
     return { earned, paid, pending, adjustments };
   }, [overview]);
@@ -150,7 +155,7 @@ export default function PayoutsPage() {
                 </CardHeader>
                 <CardContent>
                   <div className="text-2xl font-bold">{formatCurrency(totals.earned)}</div>
-                  <p className="text-xs text-muted-foreground">Fra bookinger i {selectedYear}</p>
+                  <p className="text-xs text-muted-foreground">Totalt i {selectedYear}</p>
                 </CardContent>
               </Card>
               <Card>
@@ -202,7 +207,7 @@ export default function PayoutsPage() {
                         <span className="font-semibold">{month.monthName}</span>
                         <div className="flex items-center gap-2">
                           {getStatusBadge(month.finalStatus)}
-                          {month.bookingPayouts.length > 0 && (
+                          {(month.bookingPayouts.length > 0 || (month.manualPayouts && month.manualPayouts.length > 0)) && (
                             expandedMonth === month.month 
                               ? <ChevronUp className="h-4 w-4 text-muted-foreground" />
                               : <ChevronDown className="h-4 w-4 text-muted-foreground" />
@@ -211,14 +216,22 @@ export default function PayoutsPage() {
                       </div>
                       
                       <div className="space-y-1">
-                        <div className="flex justify-between text-sm">
-                          <span className="text-muted-foreground">Bookinger:</span>
-                          <span className="font-medium">{formatCurrency(month.totalBookingAmount)}</span>
-                        </div>
-                        {month.manualStatus === 'offset' && (
+                        {month.totalBookingAmount > 0 && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Bookinger (API):</span>
+                            <span className="font-medium">{formatCurrency(month.totalBookingAmount)}</span>
+                          </div>
+                        )}
+                        {month.totalManualPaid > 0 && (
+                          <div className="flex justify-between text-sm">
+                            <span className="text-muted-foreground">Utbetalinger:</span>
+                            <span className="font-medium text-green-600">{formatCurrency(month.totalManualPaid)}</span>
+                          </div>
+                        )}
+                        {month.totalManualOffset > 0 && (
                           <div className="flex justify-between text-sm">
                             <span className="text-muted-foreground">Justering:</span>
-                            <span className="font-medium text-orange-600">-{formatCurrency(Math.abs(month.manualAmount))}</span>
+                            <span className="font-medium text-orange-600">-{formatCurrency(month.totalManualOffset)}</span>
                           </div>
                         )}
                         <div className="flex justify-between text-sm border-t pt-1">
@@ -232,31 +245,61 @@ export default function PayoutsPage() {
                         )}
                       </div>
 
-                      {expandedMonth === month.month && month.bookingPayouts.length > 0 && (
+                      {expandedMonth === month.month && (month.bookingPayouts.length > 0 || (month.manualPayouts && month.manualPayouts.length > 0)) && (
                         <div className="mt-3 pt-3 border-t space-y-2">
-                          <p className="text-xs font-semibold text-muted-foreground uppercase">Bookingdetaljer</p>
-                          {month.bookingPayouts.map((bp) => {
-                            const amount = bp.isOverridden && bp.adminAmount
-                              ? parseFloat(bp.adminAmount)
-                              : parseFloat(bp.calculatedAmount || "0");
-                            return (
-                              <div key={bp.id} className="text-sm bg-slate-50 rounded p-2">
-                                <div className="flex justify-between">
-                                  <span className="font-medium">{bp.guestName || 'Ukjent gjest'}</span>
-                                  <span className="font-mono">{formatCurrency(amount)}</span>
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                  {bp.checkIn ? new Date(bp.checkIn).toLocaleDateString('nb-NO') : '?'} – {bp.checkOut ? new Date(bp.checkOut).toLocaleDateString('nb-NO') : '?'} · {bp.nights} netter
-                                  {bp.isOverridden && <Badge variant="outline" className="ml-2 text-[10px]">Justert</Badge>}
-                                </div>
-                              </div>
-                            );
-                          })}
+                          {month.bookingPayouts.length > 0 && (
+                            <>
+                              <p className="text-xs font-semibold text-muted-foreground uppercase">Bookingdetaljer (API)</p>
+                              {month.bookingPayouts.map((bp) => {
+                                const amount = bp.isOverridden && bp.adminAmount
+                                  ? parseFloat(bp.adminAmount)
+                                  : parseFloat(bp.calculatedAmount || "0");
+                                return (
+                                  <div key={bp.id} className="text-sm bg-slate-50 rounded p-2">
+                                    <div className="flex justify-between">
+                                      <span className="font-medium">{bp.guestName || 'Ukjent gjest'}</span>
+                                      <span className="font-mono">{formatCurrency(amount)}</span>
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {bp.checkIn ? new Date(bp.checkIn).toLocaleDateString('nb-NO') : '?'} – {bp.checkOut ? new Date(bp.checkOut).toLocaleDateString('nb-NO') : '?'} · {bp.nights} netter
+                                      {bp.isOverridden && <Badge variant="outline" className="ml-2 text-[10px]">Justert</Badge>}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </>
+                          )}
+                          {month.manualPayouts && month.manualPayouts.length > 0 && (
+                            <>
+                              <p className="text-xs font-semibold text-muted-foreground uppercase mt-2">Manuelle registreringer</p>
+                              {month.manualPayouts.map((mp: any) => {
+                                const mpAmount = parseFloat(mp.amount || "0");
+                                const isOffset = mp.status === 'offset';
+                                return (
+                                  <div key={mp.id} className={`text-sm rounded p-2 ${isOffset ? 'bg-orange-50' : 'bg-green-50'}`}>
+                                    <div className="flex justify-between">
+                                      <span className="font-medium">{mp.notes || (isOffset ? 'Motregning' : 'Utbetaling')}</span>
+                                      <span className={`font-mono ${isOffset ? 'text-orange-600' : 'text-green-600'}`}>
+                                        {isOffset ? '-' : ''}{formatCurrency(Math.abs(mpAmount))}
+                                      </span>
+                                    </div>
+                                    <div className="text-xs text-muted-foreground">
+                                      {mp.rentalDays ? `${mp.rentalDays} dager` : ''}
+                                      {' '}
+                                      <Badge variant="outline" className="text-[10px]">
+                                        {mp.status === 'paid' ? 'Betalt' : mp.status === 'sent' ? 'Sendt' : mp.status === 'offset' ? 'Motregning' : mp.status === 'pending' ? 'Venter' : mp.status}
+                                      </Badge>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </>
+                          )}
                         </div>
                       )}
-                      {expandedMonth === month.month && month.bookingPayouts.length === 0 && (
+                      {expandedMonth === month.month && month.bookingPayouts.length === 0 && (!month.manualPayouts || month.manualPayouts.length === 0) && (
                         <div className="mt-3 pt-3 border-t">
-                          <p className="text-xs text-muted-foreground">Ingen bookinger registrert denne måneden</p>
+                          <p className="text-xs text-muted-foreground">Ingen registreringer denne måneden</p>
                         </div>
                       )}
                     </div>

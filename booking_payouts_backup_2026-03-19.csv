@@ -1,0 +1,3 @@
+id,user_id,property_id,booking_id,month,year,guest_name,property_name,check_in,check_out,nights,price_per_night,discount_percent,calculated_amount,admin_amount,is_overridden,currency,status,notes,created_at,updated_at,overridden_by_id,overridden_at
+1,23,,81963606,2,2026,Sleire,,2026-02-20 00:00:00,2026-02-23 00:00:00,3,600.00,20.00,1440.00,2500.00,t,NOK,pending,,2026-02-20 14:05:15.559065,2026-02-20 14:38:29.199,3,2026-02-20 14:38:29.197
+2,23,,81492873,2,2026,Sæther,,2026-02-13 00:00:00,2026-02-16 00:00:00,3,600.00,20.00,1440.00,2500.00,t,NOK,pending,,2026-02-20 14:05:21.565671,2026-02-20 14:38:44.6,3,2026-02-20 14:38:44.599

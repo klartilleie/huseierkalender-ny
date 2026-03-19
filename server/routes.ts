@@ -6444,32 +6444,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return sum + amount;
       }, 0);
       
-      const manualPayout = manualPayouts.find(p => p.month === m) || null;
-      const manualAmount = manualPayout ? parseFloat(manualPayout.amount || "0") : 0;
-      const manualStatus = manualPayout?.status || null;
-      const manualNotes = manualPayout?.notes || null;
+      const monthManualPayouts = manualPayouts.filter(p => p.month === m);
       
-      const offsetAmount = manualStatus === 'offset' ? Math.abs(manualAmount) : 0;
-      const netAmount = totalBookingAmount - offsetAmount;
+      const paidManualPayouts = monthManualPayouts.filter(p => p.status === 'paid' || p.status === 'sent');
+      const offsetManualPayouts = monthManualPayouts.filter(p => p.status === 'offset');
+      const pendingManualPayouts = monthManualPayouts.filter(p => p.status === 'pending');
+      const cancelledManualPayouts = monthManualPayouts.filter(p => p.status === 'cancelled');
       
-      let finalStatus = 'pending';
-      if (manualPayout) {
-        finalStatus = manualPayout.status;
+      const totalManualPaid = paidManualPayouts.reduce((sum, p) => sum + parseFloat(p.amount || "0"), 0);
+      const totalManualOffset = offsetManualPayouts.reduce((sum, p) => sum + Math.abs(parseFloat(p.amount || "0")), 0);
+      const totalManualPending = pendingManualPayouts.reduce((sum, p) => sum + parseFloat(p.amount || "0"), 0);
+      
+      const totalIncome = totalBookingAmount + totalManualPaid + totalManualPending;
+      const netAmount = totalIncome - totalManualOffset;
+      
+      let finalStatus = 'none';
+      if (monthManualPayouts.length > 0) {
+        if (paidManualPayouts.length > 0 && pendingManualPayouts.length === 0) {
+          finalStatus = 'paid';
+        } else if (paidManualPayouts.length > 0 && pendingManualPayouts.length > 0) {
+          finalStatus = 'paid';
+        } else if (pendingManualPayouts.length > 0) {
+          finalStatus = 'pending';
+        } else if (offsetManualPayouts.length > 0 && paidManualPayouts.length === 0 && pendingManualPayouts.length === 0) {
+          finalStatus = 'offset';
+        } else if (cancelledManualPayouts.length > 0) {
+          finalStatus = 'cancelled';
+        } else {
+          finalStatus = monthManualPayouts[0].status;
+        }
       } else if (totalBookingAmount > 0) {
         finalStatus = 'pending';
-      } else {
-        finalStatus = 'none';
       }
+      
+      const allNotes = monthManualPayouts
+        .map(p => p.notes)
+        .filter(Boolean)
+        .join('; ');
       
       months.push({
         month: m,
         monthName: MONTH_NAMES[m - 1],
         bookingPayouts: bookingPayoutsList,
         totalBookingAmount,
-        manualPayout,
-        manualAmount,
-        manualStatus,
-        manualNotes,
+        manualPayouts: monthManualPayouts,
+        totalManualPaid,
+        totalManualOffset,
+        totalManualPending,
+        totalIncome,
+        manualPayout: monthManualPayouts[0] || null,
+        manualAmount: totalManualPaid + totalManualPending - totalManualOffset,
+        manualStatus: monthManualPayouts.length > 0 ? (offsetManualPayouts.length > 0 ? 'offset' : monthManualPayouts[0].status) : null,
+        manualNotes: allNotes || null,
         netAmount,
         finalStatus
       });
