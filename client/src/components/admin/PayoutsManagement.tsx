@@ -49,7 +49,11 @@ import {
   List,
   Building,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Download,
+  Mail,
+  FileText,
+  Loader2
 } from "lucide-react";
 
 const MONTHS = [
@@ -83,6 +87,55 @@ export default function PayoutsManagement({ users }: PayoutsManagementProps) {
   const [expandedMonth, setExpandedMonth] = useState<number | null>(null);
   const [isCreateDialogOpen, setIsCreateDialogOpen] = useState(false);
   
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [isSendingEmail, setIsSendingEmail] = useState(false);
+
+  const handleDownloadPDF = async () => {
+    if (!selectedUser) return;
+    setIsGeneratingPDF(true);
+    try {
+      const response = await fetch(`/api/admin/payouts/report/${selectedUser}/${selectedYear}/download`, {
+        credentials: 'include',
+      });
+      if (!response.ok) {
+        let errMsg = 'Feil ved generering av PDF';
+        try {
+          const err = await response.json();
+          errMsg = err.message || errMsg;
+        } catch { }
+        throw new Error(errMsg);
+      }
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = response.headers.get('content-disposition')?.split('filename="')[1]?.replace('"', '') || `utbetalingsrapport_${selectedYear}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast({ title: "PDF lastet ned", description: "Utbetalingsrapporten ble lastet ned" });
+    } catch (error: any) {
+      toast({ title: "Feil", description: error.message || "Kunne ikke generere PDF", variant: "destructive" });
+    } finally {
+      setIsGeneratingPDF(false);
+    }
+  };
+
+  const handleSendEmail = async () => {
+    if (!selectedUser) return;
+    setIsSendingEmail(true);
+    try {
+      const response = await apiRequest("POST", `/api/admin/payouts/report/${selectedUser}/${selectedYear}/email`);
+      const data = await response.json();
+      toast({ title: "Rapport sendt", description: data.message || "Rapporten ble sendt via e-post" });
+    } catch (error: any) {
+      toast({ title: "Feil", description: error.message || "Kunne ikke sende rapport", variant: "destructive" });
+    } finally {
+      setIsSendingEmail(false);
+    }
+  };
+
   const [newPayout, setNewPayout] = useState({
     userId: 0,
     month: new Date().getMonth() + 1,
@@ -304,14 +357,46 @@ export default function PayoutsManagement({ users }: PayoutsManagementProps) {
               {totals && (
                 <Card className="mb-6">
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-base">
-                      Sammendrag {selectedYear} – {getUserName(selectedUser)}
-                    </CardTitle>
+                    <div className="flex items-center justify-between">
+                      <CardTitle className="text-base">
+                        Sammendrag {selectedYear} – {getUserName(selectedUser)}
+                      </CardTitle>
+                      <div className="flex gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleDownloadPDF}
+                          disabled={isGeneratingPDF}
+                        >
+                          {isGeneratingPDF ? (
+                            <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                          ) : (
+                            <Download className="h-4 w-4 mr-1" />
+                          )}
+                          Last ned PDF
+                        </Button>
+                        {!isReadOnly && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={handleSendEmail}
+                            disabled={isSendingEmail}
+                          >
+                            {isSendingEmail ? (
+                              <Loader2 className="h-4 w-4 mr-1 animate-spin" />
+                            ) : (
+                              <Mail className="h-4 w-4 mr-1" />
+                            )}
+                            Send til bruker
+                          </Button>
+                        )}
+                      </div>
+                    </div>
                   </CardHeader>
                   <CardContent>
                     <div className="grid grid-cols-3 gap-4 text-center">
                       <div>
-                        <p className="text-sm text-muted-foreground">Booking-inntekter</p>
+                        <p className="text-sm text-muted-foreground">Inntekter</p>
                         <p className="text-xl font-bold">{formatCurrency(totals.earned)}</p>
                       </div>
                       <div>

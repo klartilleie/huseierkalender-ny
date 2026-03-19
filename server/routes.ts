@@ -23,6 +23,7 @@ import multer from "multer";
 import csv from "csv-parser";
 import * as stream from "stream";
 import { createBackup, restoreBackup, getBackupsList, exportUserCalendarAsIcal, scheduleAutomaticBackups } from './backup';
+import { generatePayoutPDF } from './payout-report';
 import { 
   syncAllIcalFeeds, triggerManualIcalSync, 
   findAndRemoveDuplicateIcalEvents, findSimilarIcalEvents 
@@ -6536,6 +6537,146 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Error fetching user payout overview:", error);
       res.status(500).json({ message: "Failed to fetch payout overview" });
+    }
+  });
+
+  app.get("/api/admin/payouts/report/:userId/:year/download", hasAdminAccess, async (req: AuthenticatedRequest, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const year = parseInt(req.params.year);
+      
+      if (isNaN(userId) || isNaN(year)) {
+        res.status(400).json({ message: "Ugyldig bruker-ID eller år" });
+        return;
+      }
+
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser) {
+        res.status(404).json({ message: "Bruker ikke funnet" });
+        return;
+      }
+
+      const months = await buildPayoutOverview(userId, year);
+      
+      const pdfBuffer = await generatePayoutPDF({
+        userId,
+        userName: targetUser.name || targetUser.username,
+        userEmail: targetUser.email || '',
+        year,
+        months,
+        generatedBy: req.user!.name || req.user!.username,
+      });
+
+      const filename = `utbetalingsrapport_${(targetUser.name || targetUser.username).replace(/\s+/g, '_')}_${year}.pdf`;
+      
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.setHeader('Content-Length', pdfBuffer.length);
+      res.send(pdfBuffer);
+    } catch (error) {
+      console.error("Error generating payout PDF:", error);
+      res.status(500).json({ message: "Kunne ikke generere PDF-rapport" });
+    }
+  });
+
+  app.post("/api/admin/payouts/report/:userId/:year/email", isAdmin, async (req: AuthenticatedRequest, res) => {
+    try {
+      const userId = parseInt(req.params.userId);
+      const year = parseInt(req.params.year);
+      
+      if (isNaN(userId) || isNaN(year)) {
+        res.status(400).json({ message: "Ugyldig bruker-ID eller år" });
+        return;
+      }
+
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser) {
+        res.status(404).json({ message: "Bruker ikke funnet" });
+        return;
+      }
+
+      if (!targetUser.email) {
+        res.status(400).json({ message: "Brukeren har ingen registrert e-postadresse" });
+        return;
+      }
+
+      const months = await buildPayoutOverview(userId, year);
+      
+      const pdfBuffer = await generatePayoutPDF({
+        userId,
+        userName: targetUser.name || targetUser.username,
+        userEmail: targetUser.email,
+        year,
+        months,
+        generatedBy: req.user!.name || req.user!.username,
+      });
+
+      const filename = `utbetalingsrapport_${(targetUser.name || targetUser.username).replace(/\s+/g, '_')}_${year}.pdf`;
+
+      const nodemailer = await import('nodemailer');
+      const transporter = nodemailer.default.createTransport({
+        host: process.env.SMTP_HOST || 'smtp.smarthjem.as',
+        port: parseInt(process.env.SMTP_PORT || '587'),
+        secure: process.env.SMTP_SECURE === 'true',
+        auth: {
+          user: process.env.SMTP_USER || '',
+          pass: process.env.SMTP_PASS || process.env.SMTP_PASSWORD || '',
+        },
+        tls: {
+          rejectUnauthorized: process.env.NODE_ENV === 'production',
+        }
+      });
+
+      const totalIncome = months.reduce((s, m) => s + m.totalIncome, 0);
+      const totalOffset = months.reduce((s, m) => s + m.totalManualOffset, 0);
+      const totalNet = totalIncome - totalOffset;
+      const formatCurrency = (n: number) => n.toLocaleString('nb-NO') + ' kr';
+
+      const mailOptions = {
+        from: `"Smart Hjem AS" <${process.env.SMTP_USER || 'kalender@klartilleie.no'}>`,
+        to: targetUser.email,
+        subject: `Utbetalingsrapport ${year} - Smart Hjem AS`,
+        html: `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+            <h2 style="color: #d4a017;">Smart Hjem AS</h2>
+            <p>Hei ${targetUser.name || targetUser.username},</p>
+            <p>Vedlagt finner du din utbetalingsrapport for <strong>${year}</strong>.</p>
+            <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin: 20px 0;">
+              <p style="margin: 5px 0;"><strong>Total inntekt:</strong> ${formatCurrency(totalIncome)}</p>
+              ${totalOffset > 0 ? `<p style="margin: 5px 0; color: #ea580c;"><strong>Justeringer:</strong> -${formatCurrency(totalOffset)}</p>` : ''}
+              <p style="margin: 5px 0;"><strong>Netto:</strong> ${formatCurrency(totalNet)}</p>
+            </div>
+            <p>Se vedlagt PDF for full oversikt med detaljer per måned.</p>
+            <p style="color: #6b7280; font-size: 12px; margin-top: 30px;">
+              Denne e-posten er sendt fra Smart Hjem AS kalendersystem.<br>
+              Har du spørsmål? Kontakt oss via kundestøttesystemet.
+            </p>
+          </div>
+        `,
+        attachments: [
+          {
+            filename,
+            content: pdfBuffer,
+            contentType: 'application/pdf',
+          }
+        ],
+      };
+
+      if (process.env.NODE_ENV === 'production') {
+        await transporter.sendMail(mailOptions);
+      } else {
+        console.log('DEV: Ville sendt utbetalingsrapport til:', targetUser.email);
+        console.log('DEV: Vedlegg:', filename, `(${pdfBuffer.length} bytes)`);
+      }
+
+      res.json({ 
+        message: `Rapport sendt til ${targetUser.email}`,
+        email: targetUser.email,
+        filename 
+      });
+    } catch (error) {
+      console.error("Error sending payout report email:", error);
+      res.status(500).json({ message: "Kunne ikke sende rapport via e-post" });
     }
   });
 
